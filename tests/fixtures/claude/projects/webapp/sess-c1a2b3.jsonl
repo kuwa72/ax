@@ -1,0 +1,3 @@
+{"cwd": "/home/alice/projects/webapp"}
+{"type": "user", "message": {"content": "Refactor the login form"}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll help you refactor the login form. What framework is it using?"}]}}

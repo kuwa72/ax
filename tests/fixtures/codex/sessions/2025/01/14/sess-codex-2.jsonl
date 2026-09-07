@@ -1,0 +1,3 @@
+{"type": "session_meta", "payload": {"id": "codex-2", "cwd": "/home/bob/codex2"}}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Optimize the query"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Try adding an index."}]}}
