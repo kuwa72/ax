@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+"""ax - cross-agent session picker for claude / codex / agy / opencode / devin.
+
+Usage:
+    ax                      list -> fzf -> resume (in original cwd)
+    ax list [--json] [--agent NAME] [--limit N]
+    ax preview <agent> <id> [--json]
+    ax resume <agent> <id>
+    ax agents               show provider status
+
+Local stores only, no network. One provider failing never breaks the others.
+Requires: fzf (any recent version; tested with 0.44), python3.
+"""
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+SELF = os.path.abspath(sys.argv[0])
+
+AGENTS = ("claude", "codex", "agy", "opencode", "devin")
+
+RESUME_CMD = {
+    "claude": lambda i: (["claude", "--resume", i]),
+    "codex": lambda i: (["codex", "resume", i]),
+    "agy": lambda i: (["agy", "--conversation", i]),
+    "opencode": lambda i: (["opencode", "-s", i]),
+    "devin": lambda i: (["devin", "-r", i]),
+}
+
+
+def reltime(epoch):
+    d = int(time.time() - epoch)
+    if d < 60:
+        return "just now"
+    if d < 3600:
+        return f"{d // 60}m ago"
+    if d < 86400:
+        return f"{d // 3600}h ago"
+    if d < 86400 * 30:
+        return f"{d // 86400}d ago"
+    t = time.localtime(epoch)
+    return f"{t.tm_year}-{t.tm_mon:02d}-{t.tm_mday:02d}"
+
+
+def short_cwd(cwd):
+    if not cwd or cwd == "?":
+        return "?"
+    if cwd.startswith(HOME):
+        cwd = "~" + cwd[len(HOME):]
+    parts = cwd.rstrip("/").split("/")
+    if len(parts) > 3:
+        return "/".join(parts[:2] + ["...", parts[-1]])
+    return cwd
+
+
+def clean_title(s, n=80):
+    s = re.sub(r"\s+", " ", (s or "")).strip()
+    for tag in ("<environment_context>", "<command-name>", "<command-message>",
+                "<command-args>", "<local-command-caveat>", "<<ccr:"):
+        if tag in s:
+            return ""
+    return s[:n]
+
+
+# ---------------- claude ----------------
+def list_claude(limit=400):
+    out = []
+    root = os.path.join(HOME, ".claude", "projects")
+    if not os.path.isdir(root):
+        return out
+    files = []
+    for proj in os.scandir(root):
+        if not proj.is_dir():
+            continue
+        try:
+            for f in os.scandir(proj.path):
+                if f.name.endswith(".jsonl"):
+                    files.append((f.stat().st_mtime, f.path))
+        except OSError:
+            continue
+    files.sort(reverse=True)
+    for mtime, path in files[:limit]:
+        sid = os.path.basename(path)[:-6]
+        cwd, title = "?", ""
+        try:
+            with open(path, errors="replace") as fh:
+                for i, line in enumerate(fh):
+                    if i > 200:
+                        break
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    if not cwd or cwd == "?":
+                        c = o.get("cwd")
+                        if c:
+                            cwd = c
+                    if not title and o.get("type") == "user":
+                        msg = o.get("message", {})
+                        content = msg.get("content") if isinstance(msg, dict) else None
+                        if isinstance(content, str):
+                            title = clean_title(content)
+                        elif isinstance(content, list):
+                            for b in content:
+                                if isinstance(b, dict) and b.get("type") in ("text", "input_text"):
+                                    t = clean_title(b.get("text", ""))
+                                    if t:
+                                        title = t
+                                        break
+                    if cwd != "?" and title:
+                        break
+        except OSError:
+            continue
+        out.append({"agent": "claude", "id": sid, "epoch": int(mtime),
+                    "cwd": cwd, "title": title or "(no preview)"})
+    return out
+
+
+def preview_claude(sid, n=30):
+    root = os.path.join(HOME, ".claude", "projects")
+    for proj in os.scandir(root):
+        p = os.path.join(proj.path, sid + ".jsonl")
+        if os.path.exists(p):
+            path = p
+            break
+    else:
+        return f"claude session not found: {sid}"
+    lines = []
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            t = o.get("type")
+            if t == "user":
+                msg = o.get("message", {})
+                c = msg.get("content") if isinstance(msg, dict) else None
+                txt = c if isinstance(c, str) else " ".join(
+                    b.get("text", "") for b in c if isinstance(b, dict) and "text" in b) \
+                    if isinstance(c, list) else ""
+                txt = clean_title(txt, 500)
+                if txt:
+                    lines.append(f"[user] {txt}")
+            elif t == "assistant":
+                msg = o.get("message", {})
+                c = msg.get("content") if isinstance(msg, dict) else None
+                if isinstance(c, list):
+                    for b in c:
+                        if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                            lines.append("[ai] " + clean_title(b["text"], 500))
+                            break
+    return "\n".join(f"--- claude {sid} ({len(lines)} msgs)" for _ in [0]) + "\n" + \
+        "\n".join(lines[-n:]) if lines else f"(empty: {sid})"
+
+
+# ---------------- codex ----------------
+def list_codex(limit=300):
+    out = []
+    root = os.path.join(HOME, ".codex", "sessions")
+    if not os.path.isdir(root):
+        return out
+    files = []
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            if fn.endswith(".jsonl"):
+                p = os.path.join(dp, fn)
+                try:
+                    files.append((os.path.getmtime(p), p))
+                except OSError:
+                    pass
+    files.sort(reverse=True)
+    for mtime, path in files[:limit]:
+        sid, cwd, title = None, "?", ""
+        try:
+            with open(path, errors="replace") as fh:
+                for i, line in enumerate(fh):
+                    if i > 120:
+                        break
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    pl = o.get("payload", {}) if isinstance(o.get("payload"), dict) else {}
+                    if o.get("type") == "session_meta":
+                        sid = pl.get("id") or sid
+                        cwd = pl.get("cwd") or cwd
+                    elif not title and o.get("type") == "event_msg" \
+                            and pl.get("type") == "user_message":
+                        title = clean_title(pl.get("message", ""))
+                    elif not title and o.get("type") == "response_item" \
+                            and pl.get("role") == "user":
+                        for b in pl.get("content", []) or []:
+                            if isinstance(b, dict) and b.get("type") == "input_text":
+                                t = clean_title(b.get("text", ""))
+                                if t:
+                                    title = t
+                                    break
+                    if sid and cwd != "?" and title:
+                        break
+        except OSError:
+            continue
+        out.append({"agent": "codex", "id": sid or os.path.basename(path),
+                    "epoch": int(mtime), "cwd": cwd, "title": title or "(no preview)"})
+    return out
+
+
+def preview_codex(sid, n=30):
+    root = os.path.join(HOME, ".codex", "sessions")
+    target = None
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            if sid in fn and fn.endswith(".jsonl"):
+                target = os.path.join(dp, fn)
+                break
+        if target:
+            break
+    if not target:
+        return f"codex session not found: {sid}"
+    lines = []
+    with open(target, errors="replace") as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            pl = o.get("payload", {}) if isinstance(o.get("payload"), dict) else {}
+            if o.get("type") == "event_msg" and pl.get("type") == "user_message":
+                t = clean_title(pl.get("message", ""), 500)
+                if t:
+                    lines.append(f"[user] {t}")
+            elif o.get("type") == "response_item" and pl.get("type") == "message":
+                role = pl.get("role", "?")
+                txt = ""
+                for b in pl.get("content", []) or []:
+                    if isinstance(b, dict) and b.get("type") in ("output_text", "input_text"):
+                        txt += b.get("text", "")
+                txt = clean_title(txt, 500)
+                if txt and role != "user":
+                    lines.append(f"[ai] {txt}")
+    return f"--- codex {sid} ({len(lines)} msgs)\n" + "\n".join(lines[-n:])
+
+
+# ---------------- agy (antigravity cli) ----------------
+AGY_HOME = os.path.join(HOME, ".gemini", "antigravity-cli")
+
+
+def _agy_history():
+    """conversationId -> [best_title, workspace, max_ts_ms]."""
+    m = {}
+    p = os.path.join(AGY_HOME, "history.jsonl")
+    if not os.path.exists(p):
+        return m
+    with open(p, errors="replace") as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            cid = o.get("conversationId")
+            if not cid:
+                continue
+            disp = clean_title(re.sub(r"</?USER_REQUEST>", " ", o.get("display") or ""))
+            ws = o.get("workspace", "?") or "?"
+            ts = o.get("timestamp", 0) or 0
+            cur = m.get(cid)
+            if cur is None:
+                m[cid] = [disp if not disp.startswith("/") else "", ws, ts]
+            else:
+                if ws != "?":
+                    cur[1] = ws
+                cur[2] = max(cur[2], ts)
+                if disp and not disp.startswith("/") and len(disp) > len(cur[0]):
+                    cur[0] = disp
+    return m
+
+
+def list_agy():
+    out = []
+    conv = os.path.join(AGY_HOME, "conversations")
+    if not os.path.isdir(conv):
+        return out
+    hist = _agy_history()
+    lastmap = {}
+    try:
+        lastmap = {v: k for k, v in json.load(
+            open(os.path.join(AGY_HOME, "cache", "last_conversations.json"))).items()}
+    except Exception:
+        pass
+    dbs = []
+    for f in os.scandir(conv):
+        if f.name.endswith(".db"):
+            try:
+                dbs.append((f.stat().st_mtime, f.path, f.name[:-3]))
+            except OSError:
+                pass
+    dbs.sort(reverse=True)
+    for mtime, dbp, cid in dbs:
+        h = hist.get(cid, ("", "?", 0))
+        title, cwd, hts = h
+        epoch = int(max(mtime, (hts or 0) / 1000))
+        if cwd == "?" or not cwd:
+            try:
+                con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
+                row = con.execute(
+                    "SELECT data FROM trajectory_metadata_blob LIMIT 1").fetchone()
+                con.close()
+                if row and row[0]:
+                    m_ = re.search(rb"file://([^\x00-\x1f\"']+)", bytes(row[0]))
+                    if m_:
+                        cwd = m_.group(1).decode("utf-8", "replace")
+            except Exception:
+                pass
+        if (not cwd or cwd == "?") and cid in lastmap:
+            cwd = lastmap[cid]
+        if not title:
+            title = _agy_first_input(cid)
+        out.append({"agent": "agy", "id": cid, "epoch": epoch,
+                    "cwd": cwd or "?", "title": title or "(no preview)"})
+    return out
+
+
+def _agy_first_input(cid):
+    p = os.path.join(AGY_HOME, "brain", cid, ".system_generated", "logs", "transcript.jsonl")
+    if not os.path.exists(p):
+        return ""
+    try:
+        with open(p, errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 40:
+                    break
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if o.get("type") == "USER_INPUT" and o.get("content"):
+                    c = clean_title(re.sub(r"</?USER_REQUEST>", " ", o["content"]))
+                    if c and not c.startswith("/"):
+                        return c
+    except OSError:
+        pass
+    return ""
+
+
+def preview_agy(cid, n=30):
+    p = os.path.join(AGY_HOME, "brain", cid, ".system_generated", "logs", "transcript.jsonl")
+    if not os.path.exists(p):
+        return f"agy transcript not found: {cid}"
+    lines = []
+    with open(p, errors="replace") as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            t = o.get("type", "")
+            c = clean_title(re.sub(r"</?USER_REQUEST>|</?ADDITIONAL_METADATA>",
+                                   " ", o.get("content", "") or ""), 500)
+            if not c:
+                continue
+            if t == "USER_INPUT":
+                lines.append(f"[user] {c}")
+            elif t in ("AGENT_OUTPUT", "ASSISTANT", "MODEL_OUTPUT"):
+                lines.append(f"[ai] {c}")
+    return f"--- agy {cid} ({len(lines)} msgs)\n" + "\n".join(lines[-n:])
+
+
+# ---------------- opencode ----------------
+def _oc_db():
+    p = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
+    if not os.path.exists(p):
+        return None
+    return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+
+
+def list_opencode(limit=300):
+    out = []
+    try:
+        con = _oc_db()
+        if con is None:
+            return out
+        for sid, d, title, tu in con.execute(
+                "SELECT id, directory, title, time_updated FROM session "
+                "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+            out.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
+                        "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+        con.close()
+    except Exception:
+        pass
+    return out
+
+
+def preview_opencode(sid, n=30):
+    try:
+        con = _oc_db()
+        rows = con.execute(
+            "SELECT data FROM part WHERE session_id=? ORDER BY time_created DESC LIMIT ?",
+            (sid, n)).fetchall()
+        con.close()
+    except Exception as e:
+        return f"opencode read error: {e}"
+    lines = []
+    for (d,) in reversed(rows):
+        try:
+            o = json.loads(d) if isinstance(d, str) else d
+        except Exception:
+            continue
+        if isinstance(o, dict) and o.get("type") == "text" and o.get("text", "").strip():
+            lines.append("[msg] " + clean_title(o["text"], 500))
+    return f"--- opencode {sid} ({len(lines)} parts)\n" + "\n".join(lines[-n:])
+
+
+# ---------------- devin ----------------
+def _devin_db():
+    p = os.path.join(HOME, ".local", "share", "devin", "cli", "sessions.db")
+    if not os.path.exists(p):
+        return None
+    return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+
+
+def list_devin(limit=300):
+    out = []
+    try:
+        con = _devin_db()
+        if con is None:
+            return out
+        for sid, wd, title, la in con.execute(
+                "SELECT id, working_directory, title, last_activity_at FROM sessions "
+                "WHERE hidden=0 ORDER BY last_activity_at DESC LIMIT ?", (limit,)):
+            out.append({"agent": "devin", "id": sid, "epoch": int(la or 0),
+                        "cwd": wd or "?", "title": (title or "").strip() or "(untitled)"})
+        con.close()
+    except Exception:
+        pass
+    return out
+
+
+def preview_devin(sid, n=20):
+    p = os.path.join(HOME, ".local", "share", "devin", "cli", "transcripts", sid + ".json")
+    head = f"--- devin {sid}\nresume: devin -r {sid}\n"
+    if not os.path.exists(p):
+        return head + "(no local transcript)"
+    try:
+        d = json.load(open(p, errors="replace"))
+    except Exception as e:
+        return head + f"(transcript unreadable: {e})"
+    steps = d.get("steps", []) if isinstance(d, dict) else []
+    lines = []
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        if s.get("source") in ("system",):
+            continue
+        txt = clean_title(str(s.get("message", "")), 300)
+        if txt:
+            lines.append(f"[{s.get('source', '?')}] {txt}")
+    lines = lines[-n:]
+    meta = d.get("agent", {}) if isinstance(d, dict) else {}
+    info = f"model={meta.get('model_name', '?')} steps={len(steps)}"
+    return head + info + "\n" + "\n".join(lines)
+
+
+LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
+           "opencode": list_opencode, "devin": list_devin}
+PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
+              "opencode": preview_opencode, "devin": preview_devin}
+
+
+def collect(agents, limit):
+    rows = []
+    for a in agents:
+        try:
+            rows.extend(LISTERS[a](limit) if a in ("claude", "codex", "opencode", "devin")
+                        else LISTERS[a]())
+        except Exception as e:
+            print(f"warn: {a}: {e}", file=sys.stderr)
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows
+
+
+def fmt_tsv(rows):
+    out = []
+    for r in rows:
+        out.append("\t".join([r["agent"], r["id"], str(r["epoch"]),
+                               reltime(r["epoch"]), short_cwd(r["cwd"]),
+                               r["cwd"], r["title"]]))
+    return "\n".join(out)
+
+
+def cmd_list(args):
+    as_json, agents, limit = False, list(AGENTS), 400
+    i = 0
+    while i < len(args):
+        if args[i] == "--json":
+            as_json = True
+        elif args[i] == "--agent" and i + 1 < len(args):
+            i += 1
+            agents = [args[i]] if args[i] in AGENTS else []
+        elif args[i] == "--limit" and i + 1 < len(args):
+            i += 1
+            limit = int(args[i])
+        i += 1
+    rows = collect(agents, limit)
+    if as_json:
+        print(json.dumps(rows, ensure_ascii=False))
+    elif rows:
+        print(fmt_tsv(rows))
+
+
+def cmd_preview(args):
+    as_json = "--json" in args
+    pos = [a for a in args if not a.startswith("-")]
+    if len(pos) < 2:
+        print("usage: ax preview <agent> <id>", file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in PREVIEWERS:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    try:
+        text = PREVIEWERS[agent](sid)
+    except Exception as e:
+        text = f"preview error: {e}"
+    if as_json:
+        print(json.dumps({"agent": agent, "id": sid, "preview": text}, ensure_ascii=False))
+    else:
+        print(text)
+
+
+def cmd_resume(args):
+    pos = [a for a in args if not a.startswith("-")]
+    if len(pos) < 2:
+        print("usage: ax resume <agent> <id>", file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in RESUME_CMD:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    argv = RESUME_CMD[agent](sid)
+    cwd = None
+    for r in collect([agent], 2000):
+        if r["id"] == sid:
+            cwd = r["cwd"]
+            break
+    if cwd and os.path.isdir(cwd):
+        os.chdir(cwd)
+    print(f"+ cd {os.getcwd()} && {' '.join(argv)}", file=sys.stderr)
+    os.execvp(argv[0], argv)
+
+
+def cmd_agents():
+    info = {
+        "claude": os.path.isdir(os.path.join(HOME, ".claude", "projects")),
+        "codex": os.path.isdir(os.path.join(HOME, ".codex", "sessions")),
+        "agy": os.path.isdir(os.path.join(AGY_HOME, "conversations")),
+        "opencode": os.path.exists(os.path.join(HOME, ".local", "share", "opencode", "opencode.db")),
+        "devin": os.path.exists(os.path.join(HOME, ".local", "share", "devin", "cli", "sessions.db")),
+    }
+    for a in AGENTS:
+        print(f"{a}: {'ok' if info[a] else 'not found'}")
+
+
+def cmd_picker():
+    import shutil
+    if not shutil.which("fzf"):
+        print("ax: fzf not found in PATH", file=sys.stderr)
+        return 1
+    rows = collect(list(AGENTS), 400)
+    if not rows:
+        print("ax: no sessions found", file=sys.stderr)
+        return 1
+    tsv = fmt_tsv(rows)
+    # cols: 1 agent, 2 id, 3 epoch, 4 reltime, 5 short_cwd, 6 cwd, 7 title
+    fzf = ["fzf", "--delimiter", "\t",
+           "--with-nth", "1,4,5,7",
+           "--preview", f"{SELF} preview {{1}} {{2}}",
+           "--preview-window", "right:55%:wrap",
+           "--header", "claude/codex/agy/opencode/devin横断 | enter=resume esc=cancel",
+           "--prompt", "ax> "]
+    p = subprocess.run(fzf, input=tsv + "\n", capture_output=False,
+                       text=True, stdout=subprocess.PIPE)
+    sel = (p.stdout or "").strip()
+    if p.returncode != 0 or not sel:
+        return 0
+    agent, sid = sel.split("\t")[0], sel.split("\t")[1]
+    return cmd_resume([agent, sid])
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        return cmd_picker()
+    cmd, rest = args[0], args[1:]
+    if cmd == "list":
+        return cmd_list(rest)
+    if cmd == "preview":
+        return cmd_preview(rest)
+    if cmd == "resume":
+        return cmd_resume(rest)
+    if cmd == "agents":
+        return cmd_agents()
+    if cmd in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    print(f"unknown command: {cmd}\n{__doc__}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)
