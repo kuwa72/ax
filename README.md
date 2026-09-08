@@ -12,10 +12,10 @@
 
 ```sh
 ax                         # fzf picker (enter=元のcwdでresume)
-ax list [--json] [--agent NAME] [--limit N]
+ax list [--json] [--agent NAME] [--limit N] [--no-cache]
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
-ax agents                  # 各ストアの検出状態
+ax agents                  # 各ストアの検出状態・サイズ・件数
 ```
 
 PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
@@ -35,7 +35,7 @@ PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 - claude: `~/.claude/projects/*/*.jsonl`
 - codex: `~/.codex/sessions/**/*.jsonl`
 - agy: `~/.gemini/antigravity-cli/conversations/*.db` + `history.jsonl` + `brain/*/transcript.jsonl`
-- opencode: `~/.local/share/opencode/opencode.db` (read-only)
+- opencode: `~/.local/share/opencode/opencode.db` (read-only, list cache in `~/.cache/ax/`)
 - devin: `~/.local/share/devin/cli/sessions.db` + `transcripts/*.json` (read-only)
 
 ## 制限 (MVP)

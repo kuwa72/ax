@@ -3,10 +3,10 @@
 
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
-    ax list [--json] [--agent NAME] [--limit N]
+    ax list [--json] [--agent NAME] [--limit N] [--no-cache]
     ax preview <agent> <id> [--json]
     ax resume <agent> <id>
-    ax agents               show provider status
+    ax agents               show provider status, store size and count
 
 Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
@@ -23,6 +23,9 @@ HOME = os.path.expanduser("~")
 SELF = os.path.abspath(sys.argv[0])
 
 AGENTS = ("claude", "codex", "agy", "opencode", "devin")
+
+DEFAULT_LIMIT = 300
+CACHE_DIR = os.path.join(HOME, ".cache", "ax")
 
 RESUME_CMD = {
     "claude": lambda i: (["claude", "--resume", i]),
@@ -67,8 +70,19 @@ def clean_title(s, n=80):
     return s[:n]
 
 
+def human_size(n):
+    if n < 1024:
+        return f"{n} B"
+    for unit in ("kB", "MB", "GB", "TB"):
+        n /= 1024.0
+        if n < 1024:
+            s = f"{n:.1f}".rstrip("0").rstrip(".")
+            return f"{s} {unit}"
+    return f"{n:.1f} PB"
+
+
 # ---------------- claude ----------------
-def list_claude(limit=400):
+def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".claude", "projects")
     if not os.path.isdir(root):
@@ -164,7 +178,7 @@ def preview_claude(sid, n=30):
 
 
 # ---------------- codex ----------------
-def list_codex(limit=300):
+def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".codex", "sessions")
     if not os.path.isdir(root):
@@ -284,7 +298,7 @@ def _agy_history():
     return m
 
 
-def list_agy():
+def list_agy(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     conv = os.path.join(AGY_HOME, "conversations")
     if not os.path.isdir(conv):
@@ -383,21 +397,70 @@ def _oc_db():
     return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
 
 
-def list_opencode(limit=300):
-    out = []
+def _source_fingerprint(path, suffixes=("", "-wal", "-shm")):
+    fp = []
+    for suffix in suffixes:
+        p = path + suffix
+        try:
+            st = os.stat(p)
+            fp.append([st.st_mtime_ns, st.st_size])
+        except OSError:
+            fp.append(None)
+    return fp
+
+
+def _load_list_cache(agent, limit, fingerprint):
+    p = os.path.join(CACHE_DIR, f"{agent}.json")
     try:
-        con = _oc_db()
-        if con is None:
-            return out
+        with open(p, "r", encoding="utf-8") as fh:
+            c = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if (c.get("version") != 1 or c.get("agent") != agent or
+            c.get("limit") != limit or c.get("fingerprint") != fingerprint):
+        return None
+    rows = c.get("rows")
+    if not isinstance(rows, list):
+        return None
+    return rows
+
+
+def _save_list_cache(agent, limit, fingerprint, rows):
+    p = os.path.join(CACHE_DIR, f"{agent}.json")
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump({
+            "version": 1,
+            "agent": agent,
+            "limit": limit,
+            "fingerprint": fingerprint,
+            "rows": rows,
+        }, fh)
+
+
+def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
+    p = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
+    if not os.path.exists(p):
+        return []
+    fingerprint = _source_fingerprint(p)
+    if not no_cache:
+        cached = _load_list_cache("opencode", limit, fingerprint)
+        if cached is not None:
+            return cached
+    con = _oc_db()
+    if con is None:
+        return []
+    rows = []
+    try:
         for sid, d, title, tu in con.execute(
                 "SELECT id, directory, title, time_updated FROM session "
                 "ORDER BY time_updated DESC LIMIT ?", (limit,)):
-            out.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
+            rows.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
                         "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+    finally:
         con.close()
-    except Exception:
-        pass
-    return out
+    _save_list_cache("opencode", limit, fingerprint, rows)
+    return rows
 
 
 def preview_opencode(sid, n=30):
@@ -428,7 +491,7 @@ def _devin_db():
     return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
 
 
-def list_devin(limit=300):
+def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     try:
         con = _devin_db()
@@ -471,22 +534,127 @@ def preview_devin(sid, n=20):
     return head + info + "\n" + "\n".join(lines)
 
 
+# ---------------- store info ----------------
+def store_info_claude():
+    root = os.path.join(HOME, ".claude", "projects")
+    if not os.path.isdir(root):
+        return {"ok": False}
+    count, size = 0, 0
+    with os.scandir(root) as it:
+        for proj in it:
+            if not proj.is_dir():
+                continue
+            try:
+                with os.scandir(proj.path) as it2:
+                    for f in it2:
+                        if f.name.endswith(".jsonl"):
+                            count += 1
+                            try:
+                                size += f.stat().st_size
+                            except OSError:
+                                pass
+            except OSError:
+                continue
+    return {"ok": True, "count": count, "size": size}
+
+
+def store_info_codex():
+    root = os.path.join(HOME, ".codex", "sessions")
+    if not os.path.isdir(root):
+        return {"ok": False}
+    count, size = 0, 0
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            if fn.endswith(".jsonl"):
+                p = os.path.join(dp, fn)
+                try:
+                    count += 1
+                    size += os.path.getsize(p)
+                except OSError:
+                    pass
+    return {"ok": True, "count": count, "size": size}
+
+
+def store_info_agy():
+    root = os.path.join(AGY_HOME, "conversations")
+    if not os.path.isdir(root):
+        return {"ok": False}
+    count, size = 0, 0
+    with os.scandir(root) as it:
+        for f in it:
+            if f.name.endswith(".db"):
+                try:
+                    count += 1
+                    size += f.stat().st_size
+                except OSError:
+                    pass
+    return {"ok": True, "count": count, "size": size}
+
+
+def store_info_opencode():
+    p = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
+    if not os.path.exists(p):
+        return {"ok": False}
+    size = 0
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            size += os.path.getsize(p + suffix)
+        except OSError:
+            pass
+    count = "?"
+    try:
+        con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        try:
+            count = con.execute("SELECT COUNT(*) FROM session").fetchone()[0]
+        finally:
+            con.close()
+    except Exception as e:
+        print(f"warn: opencode: {e}", file=sys.stderr)
+    return {"ok": True, "count": count, "size": size}
+
+
+def store_info_devin():
+    p = os.path.join(HOME, ".local", "share", "devin", "cli", "sessions.db")
+    if not os.path.exists(p):
+        return {"ok": False}
+    size = os.path.getsize(p)
+    count = "?"
+    try:
+        con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        try:
+            count = con.execute(
+                "SELECT COUNT(*) FROM sessions WHERE hidden=0").fetchone()[0]
+        finally:
+            con.close()
+    except Exception as e:
+        print(f"warn: devin: {e}", file=sys.stderr)
+    return {"ok": True, "count": count, "size": size}
+
+
+STORE_INFO = {
+    "claude": store_info_claude,
+    "codex": store_info_codex,
+    "agy": store_info_agy,
+    "opencode": store_info_opencode,
+    "devin": store_info_devin,
+}
+
+
 LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
            "opencode": list_opencode, "devin": list_devin}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
               "opencode": preview_opencode, "devin": preview_devin}
 
 
-def collect(agents, limit):
+def collect(agents, limit, no_cache=False):
     rows = []
     for a in agents:
         try:
-            rows.extend(LISTERS[a](limit) if a in ("claude", "codex", "opencode", "devin")
-                        else LISTERS[a]())
+            rows.extend(LISTERS[a](limit=limit, no_cache=no_cache))
         except Exception as e:
             print(f"warn: {a}: {e}", file=sys.stderr)
     rows.sort(key=lambda r: r["epoch"], reverse=True)
-    return rows
+    return rows[:limit]
 
 
 def fmt_tsv(rows):
@@ -499,11 +667,13 @@ def fmt_tsv(rows):
 
 
 def cmd_list(args):
-    as_json, agents, limit = False, list(AGENTS), 400
+    as_json, agents, limit, no_cache = False, list(AGENTS), DEFAULT_LIMIT, False
     i = 0
     while i < len(args):
         if args[i] == "--json":
             as_json = True
+        elif args[i] == "--no-cache":
+            no_cache = True
         elif args[i] == "--agent" and i + 1 < len(args):
             i += 1
             agents = [args[i]] if args[i] in AGENTS else []
@@ -511,7 +681,7 @@ def cmd_list(args):
             i += 1
             limit = int(args[i])
         i += 1
-    rows = collect(agents, limit)
+    rows = collect(agents, limit, no_cache=no_cache)
     if as_json:
         print(json.dumps(rows, ensure_ascii=False))
     elif rows:
@@ -560,15 +730,16 @@ def cmd_resume(args):
 
 
 def cmd_agents():
-    info = {
-        "claude": os.path.isdir(os.path.join(HOME, ".claude", "projects")),
-        "codex": os.path.isdir(os.path.join(HOME, ".codex", "sessions")),
-        "agy": os.path.isdir(os.path.join(AGY_HOME, "conversations")),
-        "opencode": os.path.exists(os.path.join(HOME, ".local", "share", "opencode", "opencode.db")),
-        "devin": os.path.exists(os.path.join(HOME, ".local", "share", "devin", "cli", "sessions.db")),
-    }
     for a in AGENTS:
-        print(f"{a}: {'ok' if info[a] else 'not found'}")
+        try:
+            info = STORE_INFO[a]()
+        except Exception as e:
+            print(f"warn: {a}: {e}", file=sys.stderr)
+            info = {"ok": False}
+        if info.get("ok"):
+            print(f"{a}: ok ({info['count']} sessions, {human_size(info['size'])})")
+        else:
+            print(f"{a}: not found")
 
 
 def cmd_picker():
@@ -576,7 +747,7 @@ def cmd_picker():
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
         return 1
-    rows = collect(list(AGENTS), 400)
+    rows = collect(list(AGENTS), DEFAULT_LIMIT)
     if not rows:
         print("ax: no sessions found", file=sys.stderr)
         return 1
