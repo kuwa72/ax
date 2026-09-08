@@ -19,7 +19,7 @@ CASES = [
     ("devin", "dev-1"),
 ]
 
-ROLE_RE = re.compile(r"^\[(user|ai|msg|[a-z_]+)\]( \S.*)?$")
+ROLE_RE = re.compile(r"^\s*\[(user|ai|msg|[a-z_]+)\]( \S.*)?$")
 
 
 class TestPreviewFormat(unittest.TestCase):
@@ -68,11 +68,11 @@ class TestPreviewFormat(unittest.TestCase):
                 )
                 role_lines = [l for l in lines if ROLE_RE.match(l)]
                 self.assertTrue(
-                    any(l.startswith("[user]") for l in role_lines),
+                    any(l.lstrip().startswith("[user]") for l in role_lines),
                     f"no [user] role header for {agent}",
                 )
                 self.assertTrue(
-                    any(l.startswith("[ai]") for l in role_lines),
+                    any(l.lstrip().startswith("[ai]") for l in role_lines),
                     f"no [ai] role header for {agent}",
                 )
                 # turn blocks are separated from the header by a blank line
@@ -81,8 +81,8 @@ class TestPreviewFormat(unittest.TestCase):
     def test_role_header_is_own_line_body_follows(self):
         text = self.mod.preview_claude("sess-c1a2b3")
         lines = text.splitlines()
-        idx = next(i for i, l in enumerate(lines) if l.startswith("[user]"))
-        self.assertEqual(lines[idx + 1], "Refactor the login form")
+        idx = next(i for i, l in enumerate(lines) if l.lstrip().startswith("[user]"))
+        self.assertEqual(lines[idx + 1].lstrip(), "Refactor the login form")
 
     def test_long_body_wraps_at_width(self):
         old = os.environ.get("AX_PREVIEW_WIDTH")
@@ -118,7 +118,7 @@ class TestPreviewFormat(unittest.TestCase):
         lines = text.splitlines()
         # fixture message has a hard newline before "Also keep ..."
         self.assertTrue(
-            any(l.startswith("Also keep the submit button") for l in lines),
+            any(l.lstrip().startswith("Also keep the submit button") for l in lines),
             "original newline was not preserved",
         )
         # and the two paragraphs were not squashed onto one line
@@ -144,6 +144,24 @@ class TestPreviewFormat(unittest.TestCase):
         text = self.mod.preview_devin("dev-1")
         self.assertIn("resume: devin -r dev-1", text)
         self.assertIn("model=", text)
+
+    def test_tool_rows_filtered(self):
+        text = self.mod.render_preview(
+            "claude", "test",
+            [("user", "Start the process\n[tool: exec]\nEnd the process")],
+            width=60, total=1)
+        self.assertIn("Start the process", text)
+        self.assertIn("End the process", text)
+        self.assertNotIn("[tool: exec]", text)
+        self.assertNotIn("[tool:", text)
+
+    def test_ai_turn_is_right_aligned(self):
+        os.environ.pop("AX_PREVIEW_WIDTH", None)
+        text = self.mod.preview_claude("sess-c1a2b3")
+        lines = text.splitlines()
+        ai_lines = [l for l in lines
+                    if l.lstrip().startswith("[ai]") and l != l.lstrip()]
+        self.assertTrue(ai_lines, "ai header should be right-aligned (indented)")
 
     def test_not_found_still_readable(self):
         self.assertIn("not found", self.mod.preview_claude("no-such-id"))

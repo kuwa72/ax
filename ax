@@ -375,12 +375,18 @@ def clean_title(s, n=80):
 
 
 def body_text(s):
-    """Message body for preview: stripped, '' if it is machine noise."""
+    """Message body for preview: stripped, '' if it is machine noise.
+    Tool-only rows like '[tool: exec]' are dropped."""
     s = (s or "").strip()
     for tag in NOISE_TAGS:
         if tag in s:
             return ""
-    return s
+    lines = []
+    for line in s.splitlines():
+        if re.match(r"^\s*\[\s*tool\s*:.*\]\s*$", line, re.IGNORECASE):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def human_size(n):
@@ -438,16 +444,33 @@ def wrap_body(text, width):
 
 def render_preview(agent, sid, turns, extra=(), width=0, total=None):
     """turns: [(role, text) or (role, text, ts)] -> '--- agent id' header plus
-    blank-line-separated '[role] <ts>' / wrapped-body blocks."""
+    chat-like, blank-line-separated '[role] <ts>' / wrapped-body blocks.
+    User turns are left-aligned; assistant (ai) turns are right-aligned."""
     width = width or _wrap_width()
     lines = [f"--- {agent} {sid} ({len(turns) if total is None else total} msgs)"]
     lines.extend(extra)
     for t in turns:
         ts = fmt_ts(t[2]) if len(t) > 2 else ""
-        lines.append("")
-        lines.append(f"[{_role_label(t[0])}]" + (f" {ts}" if ts else ""))
-        lines.extend(wrap_body(t[1], width))
-    if not turns:
+        role = _role_label(t[0])
+        body = wrap_body(body_text(t[1]), width - 4)
+        if not body:
+            continue
+        h = f"[{role}]" + (f" {ts}" if ts else "")
+        if role == "ai":
+            lines.append("")
+            # right-align header to column (width - 2)
+            header_indent = max(0, width - 2 - len(h))
+            lines.append(" " * header_indent + h)
+            # body has a 2-space left padding and is right-aligned to (width - 2)
+            for line in body:
+                indent = max(0, width - 4 - len(line))
+                lines.append(" " * indent + "  " + line)
+        else:
+            lines.append("")
+            lines.append(h)
+            for line in body:
+                lines.append("  " + line)
+    if not any(l for l in lines[1:] if not l.startswith("---")):
         lines.append("(no messages)")
     return "\n".join(lines)
 
