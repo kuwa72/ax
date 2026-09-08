@@ -65,11 +65,12 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 `ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、チャット形式で
 ターンを表示する。
 
-- ユーザ発言 (`[user]`) は左寄せ、AI 発言 (`[ai]`) は右寄せ
+- user / ai どちらも左寄せで読みやすい
+- 各ターンは role 色のヘッダー + 左枠線 (`│`) で視覚的に区切る
 - 各ロールヘッダにはタイムスタンプを表示
 - 本文は単語区切りで端末幅 (最大 80 桁) に折り返され、元の改行は保持
 - `[tool: exec]` / `[tools: name]` のような tool 行は非情報とみなし非表示
-- ロールヘッダは環境・tty に応じて色付き表示 (`AX_PREVIEW_COLOR=1`, `NO_COLOR=1`)
+- role 色は環境・tty に応じて自動 ON (`AX_PREVIEW_COLOR=1` / `NO_COLOR=1`)
 - 幅は `AX_PREVIEW_WIDTH` で固定可能
 
 `--json` は機械用に `{agent, id, preview}` を返す（ANSI コードなし）。

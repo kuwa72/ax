@@ -82,7 +82,7 @@ class TestPreviewFormat(unittest.TestCase):
         text = self.mod.preview_claude("sess-c1a2b3")
         lines = text.splitlines()
         idx = next(i for i, l in enumerate(lines) if l.lstrip().startswith("[user]"))
-        self.assertEqual(lines[idx + 1].lstrip(), "Refactor the login form")
+        self.assertEqual(lines[idx + 1].lstrip("│ "), "Refactor the login form")
 
     def test_long_body_wraps_at_width(self):
         old = os.environ.get("AX_PREVIEW_WIDTH")
@@ -118,7 +118,7 @@ class TestPreviewFormat(unittest.TestCase):
         lines = text.splitlines()
         # fixture message has a hard newline before "Also keep ..."
         self.assertTrue(
-            any(l.lstrip().startswith("Also keep the submit button") for l in lines),
+            any(l.lstrip("│ ").startswith("Also keep the submit button") for l in lines),
             "original newline was not preserved",
         )
         # and the two paragraphs were not squashed onto one line
@@ -155,13 +155,14 @@ class TestPreviewFormat(unittest.TestCase):
         self.assertNotIn("[tool: exec]", text)
         self.assertNotIn("[tool:", text)
 
-    def test_ai_turn_is_right_aligned(self):
+    def test_body_has_left_border(self):
         os.environ.pop("AX_PREVIEW_WIDTH", None)
         text = self.mod.preview_claude("sess-c1a2b3")
-        lines = text.splitlines()
-        ai_lines = [l for l in lines
-                    if l.lstrip().startswith("[ai]") and l != l.lstrip()]
-        self.assertTrue(ai_lines, "ai header should be right-aligned (indented)")
+        body = [l for l in text.splitlines()
+                if l and not l.startswith(("[", "---"))]
+        self.assertTrue(body, "no body lines")
+        for l in body:
+            self.assertTrue(l.startswith("│"), f"body line missing border: {l!r}")
 
     def test_not_found_still_readable(self):
         self.assertIn("not found", self.mod.preview_claude("no-such-id"))

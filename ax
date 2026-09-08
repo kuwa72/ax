@@ -465,46 +465,45 @@ def _should_color():
     return sys.stdout.isatty()
 
 
-def _color_role_header(h, role):
-    """Wrap a role header in ANSI colors. user is green, ai is cyan."""
+_ROLE_ANSI = {"user": "\x1b[32m", "ai": "\x1b[36m", "msg": "\x1b[33m"}
+_ANSI_RESET = "\x1b[0m"
+
+
+def _role_color(role):
+    return _ROLE_ANSI.get(role, "")
+
+
+def _color_text(s, role):
     if not _should_color():
-        return h
-    codes = {"user": "\x1b[32m", "ai": "\x1b[36m"}
-    reset = "\x1b[0m"
-    return f"{codes.get(role, '')}{h}{reset}"
+        return s
+    return f"{_role_color(role)}{s}{_ANSI_RESET}"
 
 
 def render_preview(agent, sid, turns, extra=(), width=0, total=None, color=None):
     """turns: [(role, text) or (role, text, ts)] -> '--- agent id' header plus
     chat-like, blank-line-separated '[role] <ts>' / wrapped-body blocks.
-    User turns are left-aligned; assistant (ai) turns are right-aligned.
-    Role headers are colored when color is True, auto-detected if None."""
+    Each turn has a colored role header and a left border ('│') on every
+    body line, all in the role's color. Right-alignment is not used so
+    long messages read naturally from the left edge."""
     width = width or _wrap_width()
     if color is None:
         color = _should_color()
     lines = [f"--- {agent} {sid} ({len(turns) if total is None else total} msgs)"]
     lines.extend(extra)
+    border = "│"
+    body_width = width - 4
     for t in turns:
         ts = fmt_ts(t[2]) if len(t) > 2 else ""
         role = _role_label(t[0])
-        body = wrap_body(body_text(t[1]), width - 4)
+        body = wrap_body(body_text(t[1]), body_width)
         if not body:
             continue
-        h = _color_role_header(f"[{role}]" + (f" {ts}" if ts else ""), role)
-        if role == "ai":
-            lines.append("")
-            # right-align header to column (width - 2)
-            header_indent = max(0, width - 2 - _vis_len(h))
-            lines.append(" " * header_indent + h)
-            # body has a 2-space left padding and is right-aligned to (width - 2)
-            for line in body:
-                indent = max(0, width - 4 - len(line))
-                lines.append(" " * indent + "  " + line)
-        else:
-            lines.append("")
-            lines.append(h)
-            for line in body:
-                lines.append("  " + line)
+        h = _color_text(f"[{role}]" + (f" {ts}" if ts else ""), role)
+        lines.append("")
+        lines.append(h)
+        for line in body:
+            raw = f"{border} {line}" if line else border
+            lines.append(_color_text(raw, role) if color else raw)
     if not any(l for l in lines[1:] if not l.startswith("---")):
         lines.append("(no messages)")
     return "\n".join(lines)
