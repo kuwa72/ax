@@ -98,10 +98,11 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - agy: `~/.gemini/antigravity-cli/conversations/*.db` + `history.jsonl` + `brain/*/transcript.jsonl`
 - opencode: `~/.local/share/opencode/opencode.db` (read-only, list cache in `~/.cache/ax/`)
 - devin: `~/.local/share/devin/cli/sessions.db` + `transcripts/*.json` (read-only)
+  - transcript が無い/薄い場合は `devin -r <id> --export` による取得を試行
+  - ネットワーク失敗・`devin` 不在時は `sessions.db` の `message_nodes` 経由でローカル履歴を再構成し、最終的にタイトルでフォールバック
 
-## 制限 (MVP)
+## 制限
 
 - 本文検索は部分一致のみ (セマンティック検索・常駐インデックスはスコープ外)。
   JSONL は mmap で事前判定、opencode.db は `LIKE … LIMIT` で SQLite 側スキャン
-- devin preview はローカル transcript の user/agent メッセージのみ
 - 1プロバイダ異常時は stderr 警告 + 他は継続

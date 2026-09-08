@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Synthetic devin executable for ax tests."""
+import json
+import os
+import sys
+
+
+def main():
+    args = sys.argv[1:]
+    sid = None
+    out = None
+    prompt = None
+    i = 0
+    while i < len(args):
+        if args[i] in ("-r", "--resume") and i + 1 < len(args):
+            sid = args[i + 1]
+            i += 2
+        elif args[i] == "--export" and i + 1 < len(args):
+            out = args[i + 1]
+            i += 2
+        elif args[i] in ("-p", "--print") and i + 1 < len(args):
+            prompt = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    if not sid or not out:
+        print("mock devin: missing session or export path", file=sys.stderr)
+        sys.exit(1)
+
+    if prompt is None:
+        prompt = "/_ax_preview"
+
+    # Simulate the "unknown slash command" fast path: the CLI prints an error
+    # message and writes the ATIF export without running a model.
+    print(f"Unknown command: {prompt}. Use /help to see available commands.")
+
+    steps = [
+        {"source": "user", "message": prompt},
+        {"source": "agent", "message": f"Unknown command: {prompt}. Use /help to see available commands."},
+    ]
+
+    if sid == "dev-net":
+        # Synthetic cloud-only conversation that the fetch should discover.
+        steps = [
+            {"source": "user", "message": "Cloud user request"},
+            {"source": "agent", "message": "Cloud agent response"},
+        ] + steps
+
+    data = {
+        "schema_version": "ATIF-v1.7",
+        "session_id": sid,
+        "agent": {"model_name": "devin-mocked"},
+        "steps": steps,
+    }
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w") as f:
+        json.dump(data, f)
+
+
+if __name__ == "__main__":
+    main()

@@ -276,20 +276,61 @@ def generate_devin():
         os.remove(dbp)
     con = sqlite3.connect(dbp)
     con.execute(
-        "CREATE TABLE sessions (id TEXT, working_directory TEXT, title TEXT, last_activity_at INTEGER, hidden INTEGER)"
+        "CREATE TABLE sessions (id TEXT, working_directory TEXT, title TEXT, "
+        "last_activity_at INTEGER, hidden INTEGER, main_chain_id INTEGER, model TEXT)"
     )
     con.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-        ("dev-1", "/home/alice/devin", "devin test one", 1700000400, 0),
+        "CREATE TABLE message_nodes ("
+        "row_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "session_id TEXT NOT NULL, "
+        "node_id INTEGER NOT NULL, "
+        "parent_node_id INTEGER, "
+        "chat_message TEXT NOT NULL, "
+        "created_at INTEGER NOT NULL, "
+        "metadata TEXT)"
     )
     con.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-        ("dev-2", "/home/alice/devin2", "devin test two", 1700000500, 0),
+        "CREATE INDEX idx_message_nodes_session ON message_nodes(session_id)"
     )
-    con.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-        ("dev-hidden", "/home/alice/hidden", "hidden", 1700000600, 1),
+    sessions = [
+        ("dev-1", "/home/alice/devin", "devin test one", 1700000400, 0, 3, "devin-test"),
+        ("dev-2", "/home/alice/devin2", "devin test two", 1700000500, 0, 3, "devin-test"),
+        ("dev-hidden", "/home/alice/hidden", "hidden", 1700000600, 1, None, "devin-test"),
+        ("dev-cloud", "/home/alice/devin", "cloud session via db", 1700000300, 1, 3, "devin-test"),
+        ("dev-net", "/home/alice/devin", "cloud session via network", 1700000200, 1, None, "devin-test"),
+    ]
+    con.executemany(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?)", sessions
     )
+
+    # message node chains for dev-1, dev-2, dev-cloud
+    chains = [
+        ("dev-1", [
+            (0, None, "system", "system prompt"),
+            (1, 0, "system", "context"),
+            (2, 1, "user", "Build a landing page"),
+            (3, 2, "assistant", "I will build a landing page"),
+        ]),
+        ("dev-2", [
+            (0, None, "system", "system prompt"),
+            (1, 0, "system", "context"),
+            (2, 1, "user", "Refactor the auth flow"),
+            (3, 2, "assistant", "I will refactor the auth flow"),
+        ]),
+        ("dev-cloud", [
+            (0, None, "system", "system prompt"),
+            (1, 0, "system", "context"),
+            (2, 1, "user", "Plan the migration from db"),
+            (3, 2, "assistant", "I will plan the migration from db"),
+        ]),
+    ]
+    for sid, nodes in chains:
+        for node_id, parent_id, role, content in nodes:
+            con.execute(
+                "INSERT INTO message_nodes (session_id, node_id, parent_node_id, chat_message, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (sid, node_id, parent_id, json.dumps({"role": role, "content": content}), 1700000000),
+            )
     con.commit()
     con.close()
 
