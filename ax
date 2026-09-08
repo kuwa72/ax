@@ -11,6 +11,9 @@ Usage:
     ax rename <agent> <id> --name "..."   set an ax-local display title
     ax agents               show provider status, store size and count
 
+Configuration (optional):
+    ~/.config/ax/config.toml   (or $XDG_CONFIG_HOME/ax/config.toml)
+
 Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
 """
@@ -28,7 +31,8 @@ import time
 HOME = os.path.expanduser("~")
 SELF = os.path.abspath(sys.argv[0])
 
-AGENTS = ("claude", "codex", "agy", "opencode", "devin")
+ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin")
+AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
 CACHE_DIR = os.path.join(HOME, ".cache", "ax")
@@ -37,6 +41,291 @@ CACHE_DIR = os.path.join(HOME, ".cache", "ax")
 # written to, so rename is an ax-side alias that survives across all providers.
 AX_DATA_DIR = os.path.join(HOME, ".local", "share", "ax")
 TITLES_PATH = os.path.join(AX_DATA_DIR, "titles.json")
+
+PREVIEW_DEFAULTS = {
+    "claude": 30,
+    "codex": 30,
+    "agy": 30,
+    "opencode": 30,
+    "devin": 20,
+}
+
+
+# ---------------- minimal TOML config parser ----------------
+def _default_config():
+    return {
+        "limits": {
+            "max_sessions": DEFAULT_LIMIT,
+            "preview_lines": None,
+            "max_sessions_per_provider": {},
+            "preview_lines_per_provider": {},
+        },
+        "providers": {"disabled": []},
+        "fzf": {"extra_args": []},
+    }
+
+
+def _strip_comment(line):
+    quote = None
+    escape = False
+    out = []
+    for c in line:
+        if escape:
+            out.append(c)
+            escape = False
+            continue
+        if c == "\\" and quote == '"':
+            out.append(c)
+            escape = True
+            continue
+        if c == quote:
+            quote = None
+            out.append(c)
+            continue
+        if quote is None and c in ('"', "'"):
+            quote = c
+            out.append(c)
+            continue
+        if quote is None and c == "#":
+            break
+        out.append(c)
+    return "".join(out).rstrip()
+
+
+def _unescape_toml(s):
+    out = []
+    i = 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            c = s[i + 1]
+            if c == '"':
+                out.append('"')
+            elif c == "\\":
+                out.append("\\")
+            elif c == "n":
+                out.append("\n")
+            elif c == "t":
+                out.append("\t")
+            elif c == "r":
+                out.append("\r")
+            elif c == "b":
+                out.append("\b")
+            else:
+                out.append(s[i])
+                out.append(c)
+            i += 2
+            continue
+        out.append(s[i])
+        i += 1
+    return "".join(out)
+
+
+def _split_toml_array(s):
+    parts = []
+    cur = []
+    quote = None
+    escape = False
+    for c in s:
+        if escape:
+            cur.append(c)
+            escape = False
+            continue
+        if c == "\\" and quote == '"':
+            cur.append(c)
+            escape = True
+            continue
+        if quote:
+            if c == quote:
+                quote = None
+            cur.append(c)
+            continue
+        if c in ('"', "'"):
+            quote = c
+            cur.append(c)
+            continue
+        if c == ",":
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(c)
+    parts.append("".join(cur))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _parse_toml_value(s):
+    s = s.strip()
+    if s.startswith("[") and s.endswith("]"):
+        inner = s[1:-1].strip()
+        if not inner:
+            return []
+        parts = _split_toml_array(inner)
+        return [_parse_toml_value(p) for p in parts if p]
+    if s.startswith('"') and s.endswith('"'):
+        return _unescape_toml(s[1:-1])
+    if s.startswith("'") and s.endswith("'"):
+        return s[1:-1]
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    if re.fullmatch(r"-?\d+", s):
+        return int(s)
+    # bare string / lenient fallback
+    return s
+
+
+def _toml_ensure_table(root, path):
+    d = root
+    for p in path.split("."):
+        if p not in d or not isinstance(d[p], dict):
+            d[p] = {}
+        d = d[p]
+    return d
+
+
+def _parse_toml(text):
+    root = {}
+    current = root
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        raw = _strip_comment(lines[i])
+        line = raw.strip()
+        i += 1
+        if not line:
+            continue
+        if line.startswith("["):
+            end = line.find("]")
+            if end == -1:
+                raise ValueError(f"unclosed section: {line}")
+            header = line[1:end].strip()
+            current = _toml_ensure_table(root, header)
+            continue
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            continue
+        if val.startswith("["):
+            while not val.endswith("]"):
+                if i >= len(lines):
+                    raise ValueError("unclosed array")
+                nxt = _strip_comment(lines[i]).strip()
+                i += 1
+                val += " " + nxt
+        current[key] = _parse_toml_value(val)
+    return root
+
+
+def load_config(path=None):
+    if path is None:
+        config_dir = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+        path = os.path.join(config_dir, "ax", "config.toml")
+    cfg = _default_config()
+    if not os.path.exists(path):
+        return cfg
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = _parse_toml(fh.read())
+    except Exception as e:
+        print(f"warn: config read failed: {path}: {e}", file=sys.stderr)
+        return cfg
+
+    limits = raw.get("limits")
+    if isinstance(limits, dict):
+        ms = limits.get("max_sessions")
+        if isinstance(ms, int) and ms > 0:
+            cfg["limits"]["max_sessions"] = ms
+        elif isinstance(ms, dict):
+            per = {}
+            for k, v in ms.items():
+                if k in ALL_AGENTS and isinstance(v, int) and v > 0:
+                    per[k] = v
+                else:
+                    print(f"warn: config invalid limits.max_sessions.{k}: {v}", file=sys.stderr)
+            cfg["limits"]["max_sessions_per_provider"] = per
+        elif ms is not None:
+            print(f"warn: config invalid limits.max_sessions: {ms}", file=sys.stderr)
+
+        pl = limits.get("preview_lines")
+        if isinstance(pl, int) and pl > 0:
+            cfg["limits"]["preview_lines"] = pl
+        elif isinstance(pl, dict):
+            per = {}
+            for k, v in pl.items():
+                if k in ALL_AGENTS and isinstance(v, int) and v > 0:
+                    per[k] = v
+                else:
+                    print(f"warn: config invalid limits.preview_lines.{k}: {v}", file=sys.stderr)
+            cfg["limits"]["preview_lines_per_provider"] = per
+        elif pl is not None:
+            print(f"warn: config invalid limits.preview_lines: {pl}", file=sys.stderr)
+    elif limits is not None:
+        print("warn: config limits is not a table", file=sys.stderr)
+
+    providers = raw.get("providers")
+    if isinstance(providers, dict):
+        disabled = providers.get("disabled")
+        if isinstance(disabled, list):
+            valid = []
+            for d in disabled:
+                if isinstance(d, str) and d in ALL_AGENTS:
+                    valid.append(d)
+                else:
+                    print(f"warn: config unknown disabled provider: {d}", file=sys.stderr)
+            cfg["providers"]["disabled"] = valid
+        elif disabled is not None:
+            print(f"warn: config providers.disabled should be a list: {disabled}", file=sys.stderr)
+    elif providers is not None:
+        print("warn: config providers is not a table", file=sys.stderr)
+
+    fzf = raw.get("fzf")
+    if isinstance(fzf, dict):
+        extra = fzf.get("extra_args")
+        if isinstance(extra, list):
+            if all(isinstance(x, str) for x in extra):
+                cfg["fzf"]["extra_args"] = extra
+            else:
+                print("warn: config fzf.extra_args must be a list of strings", file=sys.stderr)
+        elif extra is not None:
+            print(f"warn: config fzf.extra_args should be a list: {extra}", file=sys.stderr)
+    elif fzf is not None:
+        print("warn: config fzf is not a table", file=sys.stderr)
+
+    return cfg
+
+
+def _active_agents():
+    disabled = set(CONFIG["providers"]["disabled"])
+    return tuple(a for a in ALL_AGENTS if a not in disabled)
+
+
+def _agent_limit(agent, override):
+    if override is not None:
+        return override
+    per = CONFIG["limits"]["max_sessions_per_provider"]
+    return per.get(agent, CONFIG["limits"]["max_sessions"])
+
+
+def _overall_limit(override, agents):
+    if override is not None:
+        return override
+    return CONFIG["limits"]["max_sessions"]
+
+
+def _preview_lines(agent, n=None):
+    if n is not None:
+        return n
+    per = CONFIG["limits"]["preview_lines_per_provider"]
+    if agent in per:
+        return per[agent]
+    global_pl = CONFIG["limits"]["preview_lines"]
+    if global_pl is not None:
+        return global_pl
+    return PREVIEW_DEFAULTS[agent]
+
 
 RESUME_CMD = {
     "claude": lambda i: (["claude", "--resume", i]),
@@ -232,7 +521,8 @@ def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
-def preview_claude(sid, n=30):
+def preview_claude(sid, n=None):
+    n = _preview_lines("claude", n)
     path = _claude_path(sid)
     if not path:
         return f"claude session not found: {sid}"
@@ -328,7 +618,8 @@ def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
-def preview_codex(sid, n=30):
+def preview_codex(sid, n=None):
+    n = _preview_lines("codex", n)
     target = _codex_path(sid)
     if not target:
         return f"codex session not found: {sid}"
@@ -416,7 +707,7 @@ def list_agy(limit=DEFAULT_LIMIT, no_cache=False):
                 except OSError:
                     pass
     dbs.sort(reverse=True)
-    for mtime, dbp, cid in dbs:
+    for mtime, dbp, cid in dbs[:limit]:
         h = hist.get(cid, ("", "?", 0))
         title, cwd, hts = h
         epoch = int(max(mtime, (hts or 0) / 1000))
@@ -463,7 +754,8 @@ def _agy_first_input(cid):
     return ""
 
 
-def preview_agy(cid, n=30):
+def preview_agy(cid, n=None):
+    n = _preview_lines("agy", n)
     p = _agy_transcript(cid)
     if not os.path.exists(p):
         return f"agy transcript not found: {cid}"
@@ -560,7 +852,8 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
     return rows
 
 
-def preview_opencode(sid, n=30):
+def preview_opencode(sid, n=None):
+    n = _preview_lines("opencode", n)
     try:
         con = _oc_db()
         try:
@@ -629,7 +922,8 @@ def _devin_transcript(sid):
                         sid + ".json")
 
 
-def preview_devin(sid, n=20):
+def preview_devin(sid, n=None):
+    n = _preview_lines("devin", n)
     p = _devin_transcript(sid)
     resume = f"resume: devin -r {sid}"
     if not os.path.exists(p):
@@ -994,7 +1288,8 @@ def collect(agents, limit, no_cache=False):
     rows = []
     for a in agents:
         try:
-            rows.extend(LISTERS[a](limit=limit, no_cache=no_cache))
+            agent_limit = _agent_limit(a, None) if limit is None else limit
+            rows.extend(LISTERS[a](limit=agent_limit, no_cache=no_cache))
         except Exception as e:
             print(f"warn: {a}: {e}", file=sys.stderr)
     titles = _load_titles()
@@ -1004,7 +1299,8 @@ def collect(agents, limit, no_cache=False):
             if t:
                 r["title"] = t
     rows.sort(key=lambda r: r["epoch"], reverse=True)
-    return rows[:limit]
+    overall = _overall_limit(limit, agents)
+    return rows[:overall]
 
 
 def fmt_tsv(rows):
@@ -1017,7 +1313,7 @@ def fmt_tsv(rows):
 
 
 def cmd_list(args):
-    as_json, agents, limit, no_cache = False, list(AGENTS), DEFAULT_LIMIT, False
+    as_json, agents, limit, no_cache = False, list(AGENTS), None, False
     grep_q = None
     i = 0
     while i < len(args):
@@ -1036,7 +1332,7 @@ def cmd_list(args):
             grep_q = args[i]
         i += 1
     if grep_q:
-        rows = grep_sessions(grep_q, agents, limit, no_cache=no_cache)
+        rows = grep_sessions(grep_q, agents, _overall_limit(limit, agents), no_cache=no_cache)
     else:
         rows = collect(agents, limit, no_cache=no_cache)
     if as_json:
@@ -1087,7 +1383,11 @@ def cmd_resume(args):
 
 
 def cmd_agents():
-    for a in AGENTS:
+    disabled = set(CONFIG["providers"]["disabled"])
+    for a in ALL_AGENTS:
+        if a in disabled:
+            print(f"{a}: disabled (config)")
+            continue
         try:
             info = STORE_INFO[a]()
         except Exception as e:
@@ -1120,6 +1420,7 @@ def cmd_grep(args):
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"',
            "--bind", f'ctrl-a:become:exec "{SELF}"']
+    fzf.extend(CONFIG["fzf"]["extra_args"])
     p = subprocess.run(fzf, input=fmt_tsv(rows) + "\n", capture_output=False,
                        text=True, stdout=subprocess.PIPE)
     sel = (p.stdout or "").strip()
@@ -1230,7 +1531,7 @@ def cmd_picker():
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
         return 1
-    rows = collect(list(AGENTS), DEFAULT_LIMIT)
+    rows = collect(list(AGENTS), None)
     if not rows:
         print("ax: no sessions found", file=sys.stderr)
         return 1
@@ -1245,6 +1546,7 @@ def cmd_picker():
            "--prompt", "ax> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"']
+    fzf.extend(CONFIG["fzf"]["extra_args"])
     p = subprocess.run(fzf, input=tsv + "\n", capture_output=False,
                        text=True, stdout=subprocess.PIPE)
     sel = (p.stdout or "").strip()
@@ -1279,6 +1581,9 @@ def main():
     print(f"unknown command: {cmd}\n{__doc__}", file=sys.stderr)
     return 1
 
+
+CONFIG = load_config()
+AGENTS = _active_agents()
 
 if __name__ == "__main__":
     sys.exit(main() or 0)

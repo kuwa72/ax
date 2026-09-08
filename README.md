@@ -28,6 +28,38 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 
 PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
+## 設定ファイル (optional)
+
+`~/.config/ax/config.toml` (または `$XDG_CONFIG_HOME/ax/config.toml`) に
+TOML 形式で書く。存在しない場合は既定値が使われる。
+
+```toml
+[limits]
+max_sessions = 300
+preview_lines = 30
+
+[limits.max_sessions]
+claude = 100
+agy = 50
+
+[limits.preview_lines]
+devin = 20
+
+[providers]
+disabled = ["agy"]
+
+[fzf]
+extra_args = ["--bind", "ctrl-a:toggle-preview"]
+```
+
+- `limits.max_sessions`: 一覧で読み込む最大セッション数。`--limit` で上書き可。
+- `[limits.max_sessions]`: プロバイダ別の最大数。指定がないプロバイダはグローバル値を使う。
+- `limits.preview_lines` / `[limits.preview_lines]`: `preview` で表示する直近ターン数。
+- `providers.disabled`: 一覧・picker から除外するプロバイダ。`ax agents` では `disabled (config)` と表示される。
+- `fzf.extra_args`: picker / grep の fzf 引数に追加するオプション (fzf 0.44 互換のみ)。
+
+無効な値は stderr に警告を出し、既定値で続行する。設定ファイルの読み込み失敗時も同様。
+
 ## preview 形式
 
 `ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、ターンごとに
