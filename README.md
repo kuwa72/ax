@@ -68,10 +68,11 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - ユーザ発言 (`[user]`) は左寄せ、AI 発言 (`[ai]`) は右寄せ
 - 各ロールヘッダにはタイムスタンプを表示
 - 本文は単語区切りで端末幅 (最大 80 桁) に折り返され、元の改行は保持
-- `[tool: exec]` のような tool 行は非情報とみなし非表示
+- `[tool: exec]` / `[tools: name]` のような tool 行は非情報とみなし非表示
+- ロールヘッダは環境・tty に応じて色付き表示 (`AX_PREVIEW_COLOR=1`, `NO_COLOR=1`)
 - 幅は `AX_PREVIEW_WIDTH` で固定可能
 
-`--json` は機械用に `{agent, id, preview}` を返す。
+`--json` は機械用に `{agent, id, preview}` を返す（ANSI コードなし）。
 
 ## resume 先
 

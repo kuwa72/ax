@@ -115,6 +115,7 @@ class TestDevinPreview(unittest.TestCase):
             "steps": [
                 {"source": "user", "message": "Hello"},
                 {"source": "agent", "message": "Hi there", "tool_calls": [{"function_name": "exec"}]},
+                {"source": "tool", "message": "tool exec result"},
             ],
         }
         p = os.path.join(self.tmp, ".local", "share", "devin", "cli", "transcripts", "dev-agent.json")
@@ -126,7 +127,8 @@ class TestDevinPreview(unittest.TestCase):
         self.assertIn("Hello", text)
         self.assertIn("[ai]", text)
         self.assertIn("Hi there", text)
-        self.assertIn("[tools: exec]", text)
+        self.assertNotIn("[tools:", text)
+        self.assertNotIn("tool exec result", text)
 
 
 if __name__ == "__main__":

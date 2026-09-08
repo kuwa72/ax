@@ -376,7 +376,8 @@ def clean_title(s, n=80):
 
 def body_text(s):
     """Message body for preview: stripped, '' if it is machine noise.
-    Tool-only rows like '[tool: exec]' are dropped."""
+    Tool-only rows like '[tool: exec]' and inline '[tools: name]' markers
+    are dropped."""
     s = (s or "").strip()
     for tag in NOISE_TAGS:
         if tag in s:
@@ -385,6 +386,8 @@ def body_text(s):
     for line in s.splitlines():
         if re.match(r"^\s*\[\s*tool\s*:.*\]\s*$", line, re.IGNORECASE):
             continue
+        # strip inline tool-call markers (e.g. devin "[tools: exec]")
+        line = re.sub(r"\s*\[tools:[^\]]+\]", "", line, flags=re.IGNORECASE)
         lines.append(line)
     return "\n".join(lines).strip()
 
@@ -442,11 +445,43 @@ def wrap_body(text, width):
     return out
 
 
-def render_preview(agent, sid, turns, extra=(), width=0, total=None):
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _vis_len(s):
+    """Visible length of a string that may contain ANSI codes."""
+    return len(_ANSI_RE.sub("", s))
+
+
+def _should_color():
+    """Color role headers when explicitly requested, or on a terminal."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    env = os.environ.get("AX_PREVIEW_COLOR", "").lower()
+    if env in ("1", "true", "yes"):
+        return True
+    if env in ("0", "false", "no"):
+        return False
+    return sys.stdout.isatty()
+
+
+def _color_role_header(h, role):
+    """Wrap a role header in ANSI colors. user is green, ai is cyan."""
+    if not _should_color():
+        return h
+    codes = {"user": "\x1b[32m", "ai": "\x1b[36m"}
+    reset = "\x1b[0m"
+    return f"{codes.get(role, '')}{h}{reset}"
+
+
+def render_preview(agent, sid, turns, extra=(), width=0, total=None, color=None):
     """turns: [(role, text) or (role, text, ts)] -> '--- agent id' header plus
     chat-like, blank-line-separated '[role] <ts>' / wrapped-body blocks.
-    User turns are left-aligned; assistant (ai) turns are right-aligned."""
+    User turns are left-aligned; assistant (ai) turns are right-aligned.
+    Role headers are colored when color is True, auto-detected if None."""
     width = width or _wrap_width()
+    if color is None:
+        color = _should_color()
     lines = [f"--- {agent} {sid} ({len(turns) if total is None else total} msgs)"]
     lines.extend(extra)
     for t in turns:
@@ -455,11 +490,11 @@ def render_preview(agent, sid, turns, extra=(), width=0, total=None):
         body = wrap_body(body_text(t[1]), width - 4)
         if not body:
             continue
-        h = f"[{role}]" + (f" {ts}" if ts else "")
+        h = _color_role_header(f"[{role}]" + (f" {ts}" if ts else ""), role)
         if role == "ai":
             lines.append("")
             # right-align header to column (width - 2)
-            header_indent = max(0, width - 2 - len(h))
+            header_indent = max(0, width - 2 - _vis_len(h))
             lines.append(" " * header_indent + h)
             # body has a 2-space left padding and is right-aligned to (width - 2)
             for line in body:
@@ -545,7 +580,7 @@ def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
-def preview_claude(sid, n=None):
+def preview_claude(sid, n=None, color=None):
     n = _preview_lines("claude", n)
     path = _claude_path(sid)
     if not path:
@@ -577,7 +612,7 @@ def preview_claude(sid, n=None):
                             if txt:
                                 turns.append(("ai", txt, o.get("timestamp")))
                             break
-    return render_preview("claude", sid, turns[-n:], total=len(turns))
+    return render_preview("claude", sid, turns[-n:], total=len(turns), color=color)
 
 
 # ---------------- codex ----------------
@@ -642,7 +677,7 @@ def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
-def preview_codex(sid, n=None):
+def preview_codex(sid, n=None, color=None):
     n = _preview_lines("codex", n)
     target = _codex_path(sid)
     if not target:
@@ -668,7 +703,7 @@ def preview_codex(sid, n=None):
                 txt = body_text(txt)
                 if txt and role != "user":
                     turns.append(("ai", txt, o.get("timestamp")))
-    return render_preview("codex", sid, turns[-n:], total=len(turns))
+    return render_preview("codex", sid, turns[-n:], total=len(turns), color=color)
 
 
 # ---------------- agy (antigravity cli) ----------------
@@ -778,7 +813,7 @@ def _agy_first_input(cid):
     return ""
 
 
-def preview_agy(cid, n=None):
+def preview_agy(cid, n=None, color=None):
     n = _preview_lines("agy", n)
     p = _agy_transcript(cid)
     if not os.path.exists(p):
@@ -791,15 +826,26 @@ def preview_agy(cid, n=None):
             except Exception:
                 continue
             t = o.get("type", "")
-            c = body_text(re.sub(r"</?USER_REQUEST>|</?ADDITIONAL_METADATA>",
-                                 " ", o.get("content", "") or ""))
+            c = o.get("content", "") or ""
+            # USER_INPUT wraps the actual prompt in <USER_REQUEST>; keep the inner text.
+            # If the tag is missing, treat the whole content as the prompt.
+            if t == "USER_INPUT":
+                m = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", c,
+                              flags=re.DOTALL)
+                if m:
+                    c = m.group(1)
+            # Strip metadata blocks regardless of role.
+            c = re.sub(r"<(ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)>"
+                       r".*?</\1>", "", c, flags=re.DOTALL)
+            c = body_text(c)
             if not c:
                 continue
             if t == "USER_INPUT":
                 turns.append(("user", c, o.get("timestamp")))
-            elif t in ("AGENT_OUTPUT", "ASSISTANT", "MODEL_OUTPUT"):
+            elif t in ("AGENT_OUTPUT", "ASSISTANT", "MODEL_OUTPUT",
+                       "PLANNER_RESPONSE"):
                 turns.append(("ai", c, o.get("timestamp")))
-    return render_preview("agy", cid, turns[-n:], total=len(turns))
+    return render_preview("agy", cid, turns[-n:], total=len(turns), color=color)
 
 
 # ---------------- opencode ----------------
@@ -876,7 +922,7 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
     return rows
 
 
-def preview_opencode(sid, n=None):
+def preview_opencode(sid, n=None, color=None):
     n = _preview_lines("opencode", n)
     try:
         con = _oc_db()
@@ -913,7 +959,7 @@ def preview_opencode(sid, n=None):
         except Exception:
             pass
         turns.append((_role_label(role), txt, ts))
-    return render_preview("opencode", sid, turns, total=len(turns))
+    return render_preview("opencode", sid, turns, total=len(turns), color=color)
 
 
 # ---------------- devin ----------------
@@ -956,28 +1002,12 @@ def _devin_step_text(step):
     if not isinstance(step, dict):
         return None
     source = step.get("source", "")
-    if source == "system":
+    if source in ("system", "tool"):
         return None
-    if source not in ("user", "agent", "assistant", "tool"):
+    if source not in ("user", "agent", "assistant"):
         return None
     label = _role_label(source)
     text = _devin_message_text(step.get("message", ""))
-    # Append tool call names for agent/assistant steps when available.
-    if source in ("agent", "assistant"):
-        tool_names = []
-        for tc in step.get("tool_calls", []) or []:
-            if isinstance(tc, dict):
-                fn = tc.get("function_name")
-                if fn is None and isinstance(tc.get("function"), dict):
-                    fn = tc["function"].get("name")
-                if fn:
-                    tool_names.append(fn)
-        if tool_names:
-            marker = " [tools: " + ", ".join(tool_names) + "]"
-            if text:
-                text += marker
-            else:
-                text = marker
     if not text:
         return None
     return f"[{label}] {text}"
@@ -1158,7 +1188,7 @@ def _devin_lines_to_turns(lines):
     return turns
 
 
-def preview_devin(sid, n=None):
+def preview_devin(sid, n=None, color=None):
     n = _preview_lines("devin", n)
     resume = f"resume: devin -r {sid}"
     local_path = _devin_transcript_path(sid)
@@ -1170,7 +1200,7 @@ def preview_devin(sid, n=None):
             return None
         info = f"model={model} steps={total} source={source}"
         return render_preview("devin", sid, turns[-n:], total=total,
-                              extra=[resume, info])
+                              extra=[resume, info], color=color)
 
     # 1. Local ATIF transcript.
     if os.path.exists(local_path):
@@ -1619,7 +1649,7 @@ def cmd_preview(args):
         print(f"unknown agent: {agent}", file=sys.stderr)
         return 1
     try:
-        text = PREVIEWERS[agent](sid)
+        text = PREVIEWERS[agent](sid, color=False if as_json else None)
     except Exception as e:
         text = f"preview error: {e}"
     if as_json:
@@ -1678,7 +1708,7 @@ def cmd_grep(args):
     if not rows:
         print(f"ax: no body hits for: {q}", file=sys.stderr)
         return 1
-    fzf = ["fzf", "--delimiter", "\t",
+    fzf = ["fzf", "--delimiter", "\t", "--ansi",
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
@@ -1688,8 +1718,10 @@ def cmd_grep(args):
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"',
            "--bind", f'ctrl-a:become:exec "{SELF}"']
     fzf.extend(CONFIG["fzf"]["extra_args"])
+    env = os.environ.copy()
+    env["AX_PREVIEW_COLOR"] = "1"
     p = subprocess.run(fzf, input=fmt_tsv(rows) + "\n", capture_output=False,
-                       text=True, stdout=subprocess.PIPE)
+                       text=True, stdout=subprocess.PIPE, env=env)
     sel = (p.stdout or "").strip()
     if p.returncode != 0 or not sel:
         return 0
@@ -1805,7 +1837,7 @@ def cmd_picker():
     tsv = fmt_tsv(rows)
     # cols: 1 agent, 2 id, 3 epoch, 4 reltime, 5 short_cwd, 6 cwd, 7 title
     # fzf 0.44: `transform` is unavailable, so ctrl-g re-execs ax via become.
-    fzf = ["fzf", "--delimiter", "\t",
+    fzf = ["fzf", "--delimiter", "\t", "--ansi",
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
@@ -1814,8 +1846,10 @@ def cmd_picker():
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"']
     fzf.extend(CONFIG["fzf"]["extra_args"])
+    env = os.environ.copy()
+    env["AX_PREVIEW_COLOR"] = "1"
     p = subprocess.run(fzf, input=tsv + "\n", capture_output=False,
-                       text=True, stdout=subprocess.PIPE)
+                       text=True, stdout=subprocess.PIPE, env=env)
     sel = (p.stdout or "").strip()
     if p.returncode != 0 or not sel:
         return 0
