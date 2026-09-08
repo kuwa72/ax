@@ -62,10 +62,15 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 
 ## preview 形式
 
-`ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、ターンごとに
-`[user]` / `[ai]` 等のロールヘッダ行 (+タイムスタンプ) と本文ブロックを
-空行区切りで表示する。本文は単語区切りで端末幅 (最大 80 桁) に折り返され、
-元の改行は保持される。幅は `AX_PREVIEW_WIDTH` で固定できる。
+`ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、チャット形式で
+ターンを表示する。
+
+- ユーザ発言 (`[user]`) は左寄せ、AI 発言 (`[ai]`) は右寄せ
+- 各ロールヘッダにはタイムスタンプを表示
+- 本文は単語区切りで端末幅 (最大 80 桁) に折り返され、元の改行は保持
+- `[tool: exec]` のような tool 行は非情報とみなし非表示
+- 幅は `AX_PREVIEW_WIDTH` で固定可能
+
 `--json` は機械用に `{agent, id, preview}` を返す。
 
 ## resume 先
