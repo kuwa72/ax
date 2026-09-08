@@ -25,6 +25,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 
@@ -893,11 +894,219 @@ def preview_opencode(sid, n=None):
 
 
 # ---------------- devin ----------------
+DEVIN_PREVIEW_PROMPT = "/_ax_preview"
+
+
 def _devin_db():
     p = os.path.join(HOME, ".local", "share", "devin", "cli", "sessions.db")
     if not os.path.exists(p):
         return None
     return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+
+
+def _devin_transcript_path(sid):
+    return os.path.join(HOME, ".local", "share", "devin", "cli", "transcripts", sid + ".json")
+
+
+def _devin_cache_path(sid):
+    return os.path.join(CACHE_DIR, "devin", sid + ".json")
+
+
+def _devin_message_text(msg):
+    if isinstance(msg, str):
+        return clean_title(msg, 300)
+    if isinstance(msg, list):
+        parts = []
+        for part in msg:
+            if isinstance(part, dict):
+                if part.get("type") in ("text", "input_text", "output_text"):
+                    parts.append(part.get("text", ""))
+                else:
+                    parts.append(str(part))
+            else:
+                parts.append(str(part))
+        return clean_title("".join(parts), 300)
+    return ""
+
+
+def _devin_step_text(step):
+    if not isinstance(step, dict):
+        return None
+    source = step.get("source", "")
+    if source == "system":
+        return None
+    if source not in ("user", "agent", "assistant", "tool"):
+        return None
+    label = _role_label(source)
+    text = _devin_message_text(step.get("message", ""))
+    # Append tool call names for agent/assistant steps when available.
+    if source in ("agent", "assistant"):
+        tool_names = []
+        for tc in step.get("tool_calls", []) or []:
+            if isinstance(tc, dict):
+                fn = tc.get("function_name")
+                if fn is None and isinstance(tc.get("function"), dict):
+                    fn = tc["function"].get("name")
+                if fn:
+                    tool_names.append(fn)
+        if tool_names:
+            marker = " [tools: " + ", ".join(tool_names) + "]"
+            if text:
+                text += marker
+            else:
+                text = marker
+    if not text:
+        return None
+    return f"[{label}] {text}"
+
+
+def _devin_trim_sentinel(steps, sentinel):
+    if not steps or len(steps) < 2:
+        return steps
+    last = steps[-1]
+    prev = steps[-2]
+    if (isinstance(last, dict)
+            and last.get("source") in ("agent", "assistant")
+            and isinstance(last.get("message"), str)
+            and last["message"].startswith("Unknown command:")):
+        if (isinstance(prev, dict)
+                and prev.get("source") == "user"
+                and prev.get("message") == sentinel):
+            return steps[:-2]
+    return steps
+
+
+def _devin_lines_from_steps(steps, trim_sentinel=None):
+    if trim_sentinel:
+        steps = _devin_trim_sentinel(steps, trim_sentinel)
+    lines = []
+    for s in steps:
+        line = _devin_step_text(s)
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _parse_devin_export(path, trim_sentinel=None):
+    with open(path, errors="replace") as fh:
+        d = json.load(fh)
+    steps = d.get("steps", []) if isinstance(d, dict) else []
+    lines = _devin_lines_from_steps(steps, trim_sentinel)
+    return d, lines
+
+
+def _devin_db_messages(sid):
+    con = _devin_db()
+    if con is None:
+        return None
+    try:
+        row = con.execute(
+            "SELECT main_chain_id, model FROM sessions WHERE id=?", (sid,)
+        ).fetchone()
+        if not row:
+            con.close()
+            return None
+        main_chain_id, model = row[0], row[1] or "?"
+        rows = con.execute(
+            "SELECT node_id, parent_node_id, chat_message "
+            "FROM message_nodes WHERE session_id=?", (sid,)
+        ).fetchall()
+        con.close()
+        if not rows or main_chain_id is None:
+            return None
+        node_map = {}
+        for node_id, parent_id, raw in rows:
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                msg = {}
+            node_map[node_id] = (parent_id, msg)
+        chain = []
+        seen = set()
+        cur = main_chain_id
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            chain.append(cur)
+            parent, _ = node_map.get(cur, (None, None))
+            cur = parent
+        chain.reverse()
+        lines = []
+        for node_id in chain:
+            _, msg = node_map.get(node_id, (None, None))
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role", "")
+            if role in ("system", "tool"):
+                continue
+            label = _role_label(role)
+            text = _devin_message_text(msg.get("content"))
+            if text:
+                lines.append(f"[{label}] {text}")
+        return lines, model
+    except Exception:
+        return None
+
+
+def _devin_title(sid):
+    con = _devin_db()
+    if con is None:
+        return ""
+    try:
+        row = con.execute("SELECT title FROM sessions WHERE id=?", (sid,)).fetchone()
+        con.close()
+        if row and row[0]:
+            return row[0].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _devin_run_export(sid, out_path, timeout=15):
+    import shutil
+    devin = shutil.which("devin")
+    if not devin:
+        raise FileNotFoundError("devin not found")
+    cmd = [devin, "-r", sid, "-p", DEVIN_PREVIEW_PROMPT, "--export", out_path,
+           "--respect-workspace-trust", "false"]
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate()
+        raise RuntimeError(f"devin timed out: {err}")
+    if proc.returncode != 0:
+        raise RuntimeError(f"devin failed ({proc.returncode}): {err}")
+    if not os.path.exists(out_path):
+        raise RuntimeError(f"devin did not write export: {err}")
+
+
+def _devin_try_export(sid, cache_path, n=20):
+    fd, tmp = tempfile.mkstemp(suffix=".json", prefix="ax-devin-")
+    os.close(fd)
+    try:
+        _devin_run_export(sid, tmp, timeout=15)
+        d, lines = _parse_devin_export(tmp, trim_sentinel=DEVIN_PREVIEW_PROMPT)
+        if not lines:
+            return None
+        # Cache the fetched transcript for future previews.
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            shutil.copy(tmp, cache_path)
+        except Exception:
+            pass
+        model = d.get("agent", {}).get("model_name", "?")
+        return model, len(d.get("steps", [])), lines[-n:]
+    except Exception as e:
+        print(f"warn: devin export failed for {sid}: {e}", file=sys.stderr)
+        return None
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
 
 
 def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
@@ -917,37 +1126,72 @@ def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
-def _devin_transcript(sid):
-    return os.path.join(HOME, ".local", "share", "devin", "cli", "transcripts",
-                        sid + ".json")
+def _devin_lines_to_turns(lines):
+    turns = []
+    for line in lines or []:
+        m = re.match(r"^\[([^\]]+)\]\s(.*)$", line)
+        if m:
+            turns.append((m.group(1), m.group(2)))
+    return turns
 
 
 def preview_devin(sid, n=None):
     n = _preview_lines("devin", n)
-    p = _devin_transcript(sid)
     resume = f"resume: devin -r {sid}"
-    if not os.path.exists(p):
-        return f"--- devin {sid}\n{resume}\n(no local transcript)"
-    try:
-        with open(p, errors="replace") as fh:
-            d = json.load(fh)
-    except Exception as e:
-        return f"--- devin {sid}\n{resume}\n(transcript unreadable: {e})"
-    steps = d.get("steps", []) if isinstance(d, dict) else []
-    turns = []
-    for s in steps:
-        if not isinstance(s, dict):
-            continue
-        if s.get("source") in ("system",):
-            continue
-        txt = body_text(str(s.get("message", "")))
-        if txt:
-            turns.append((_role_label(s.get("source")), txt,
-                          s.get("timestamp")))
-    meta = d.get("agent", {}) if isinstance(d, dict) else {}
-    info = f"model={meta.get('model_name', '?')} steps={len(steps)}"
-    return render_preview("devin", sid, turns[-n:], total=len(turns),
-                          extra=[resume, info])
+    local_path = _devin_transcript_path(sid)
+    cache_path = _devin_cache_path(sid)
+
+    def _render(total, lines, model, source):
+        turns = _devin_lines_to_turns(lines)
+        if not turns:
+            return None
+        info = f"model={model} steps={total} source={source}"
+        return render_preview("devin", sid, turns[-n:], total=total,
+                              extra=[resume, info])
+
+    # 1. Local ATIF transcript.
+    if os.path.exists(local_path):
+        try:
+            d, lines = _parse_devin_export(local_path)
+            out = _render(len(d.get("steps", [])), lines,
+                          d.get("agent", {}).get("model_name", "?"), "local")
+            if out:
+                return out
+        except Exception:
+            pass
+
+    # 2. Cached export from a previous fallback.
+    if os.path.exists(cache_path):
+        try:
+            d, lines = _parse_devin_export(cache_path)
+            out = _render(len(d.get("steps", [])), lines,
+                          d.get("agent", {}).get("model_name", "?"), "cache")
+            if out:
+                return out
+        except Exception:
+            pass
+
+    # 3. Try devin --export to fetch from the cloud.
+    result = _devin_try_export(sid, cache_path, n=n)
+    if result:
+        model, steps, lines = result
+        out = _render(steps, lines, model, "export")
+        if out:
+            return out
+
+    # 4. Fall back to the local sessions.db message_nodes tree.
+    db_result = _devin_db_messages(sid)
+    if db_result:
+        lines, model = db_result
+        out = _render(len(lines), lines, model, "db")
+        if out:
+            return out
+
+    # 5. Final fallback: show the session title if known.
+    title = _devin_title(sid)
+    if title:
+        return f"--- devin {sid} (0 msgs)\n{resume}\ntitle={title} (no local transcript)"
+    return f"--- devin {sid} (0 msgs)\n{resume}\n(no local transcript)"
 
 
 # ---------------- store info ----------------
@@ -1215,7 +1459,7 @@ def grep_opencode(sid, pats_b, pat_s, query, max_hits=2):
 
 
 def grep_devin(sid, pats_b, pat_s, query, max_hits=2):
-    p = _devin_transcript(sid)
+    p = _devin_transcript_path(sid)
     out = []
     if not os.path.exists(p) or not _file_might_contain(p, pats_b):
         return out
