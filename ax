@@ -22,6 +22,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import textwrap
 import time
 
 HOME = os.path.expanduser("~")
@@ -71,13 +72,25 @@ def short_cwd(cwd):
     return cwd
 
 
+NOISE_TAGS = ("<environment_context>", "<command-name>", "<command-message>",
+              "<command-args>", "<local-command-caveat>", "<<ccr:")
+
+
 def clean_title(s, n=80):
     s = re.sub(r"\s+", " ", (s or "")).strip()
-    for tag in ("<environment_context>", "<command-name>", "<command-message>",
-                "<command-args>", "<local-command-caveat>", "<<ccr:"):
+    for tag in NOISE_TAGS:
         if tag in s:
             return ""
     return s[:n]
+
+
+def body_text(s):
+    """Message body for preview: stripped, '' if it is machine noise."""
+    s = (s or "").strip()
+    for tag in NOISE_TAGS:
+        if tag in s:
+            return ""
+    return s
 
 
 def human_size(n):
@@ -89,6 +102,64 @@ def human_size(n):
             s = f"{n:.1f}".rstrip("0").rstrip(".")
             return f"{s} {unit}"
     return f"{n:.1f} PB"
+
+
+# ---------------- preview formatting ----------------
+def _role_label(role):
+    r = (role or "").strip().lower()
+    if r == "user":
+        return "user"
+    if r in ("assistant", "ai", "agent", "model"):
+        return "ai"
+    return r or "msg"
+
+
+def fmt_ts(ts):
+    """Best-effort 'YYYY-MM-DD HH:MM' from epoch s/ms or an ISO string."""
+    if ts is None or ts == "":
+        return ""
+    if isinstance(ts, (int, float)):
+        epoch = ts / 1000 if ts > 1e11 else ts
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(epoch))
+    return str(ts).strip().replace("T", " ")[:16]
+
+
+def _wrap_width():
+    try:
+        w = int(os.environ.get("AX_PREVIEW_WIDTH", "0"))
+    except ValueError:
+        w = 0
+    if w <= 0:
+        w = min(shutil.get_terminal_size((80, 24)).columns, 80)
+    return max(w, 20)
+
+
+def wrap_body(text, width):
+    """Word-wrap each line at width, preserving original newlines."""
+    out = []
+    for line in (text or "").split("\n"):
+        if not line.strip():
+            out.append("")
+            continue
+        out.extend(textwrap.wrap(line, width=width, break_long_words=False,
+                                 break_on_hyphens=False) or [""])
+    return out
+
+
+def render_preview(agent, sid, turns, extra=(), width=0, total=None):
+    """turns: [(role, text) or (role, text, ts)] -> '--- agent id' header plus
+    blank-line-separated '[role] <ts>' / wrapped-body blocks."""
+    width = width or _wrap_width()
+    lines = [f"--- {agent} {sid} ({len(turns) if total is None else total} msgs)"]
+    lines.extend(extra)
+    for t in turns:
+        ts = fmt_ts(t[2]) if len(t) > 2 else ""
+        lines.append("")
+        lines.append(f"[{_role_label(t[0])}]" + (f" {ts}" if ts else ""))
+        lines.extend(wrap_body(t[1], width))
+    if not turns:
+        lines.append("(no messages)")
+    return "\n".join(lines)
 
 
 # ---------------- claude ----------------
@@ -165,7 +236,7 @@ def preview_claude(sid, n=30):
     path = _claude_path(sid)
     if not path:
         return f"claude session not found: {sid}"
-    lines = []
+    turns = []
     with open(path, errors="replace") as fh:
         for line in fh:
             try:
@@ -176,22 +247,23 @@ def preview_claude(sid, n=30):
             if t == "user":
                 msg = o.get("message", {})
                 c = msg.get("content") if isinstance(msg, dict) else None
-                txt = c if isinstance(c, str) else " ".join(
+                txt = c if isinstance(c, str) else "\n".join(
                     b.get("text", "") for b in c if isinstance(b, dict) and "text" in b) \
                     if isinstance(c, list) else ""
-                txt = clean_title(txt, 500)
+                txt = body_text(txt)
                 if txt:
-                    lines.append(f"[user] {txt}")
+                    turns.append(("user", txt, o.get("timestamp")))
             elif t == "assistant":
                 msg = o.get("message", {})
                 c = msg.get("content") if isinstance(msg, dict) else None
                 if isinstance(c, list):
                     for b in c:
                         if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
-                            lines.append("[ai] " + clean_title(b["text"], 500))
+                            txt = body_text(b["text"])
+                            if txt:
+                                turns.append(("ai", txt, o.get("timestamp")))
                             break
-    return "\n".join(f"--- claude {sid} ({len(lines)} msgs)" for _ in [0]) + "\n" + \
-        "\n".join(lines[-n:]) if lines else f"(empty: {sid})"
+    return render_preview("claude", sid, turns[-n:], total=len(turns))
 
 
 # ---------------- codex ----------------
@@ -260,7 +332,7 @@ def preview_codex(sid, n=30):
     target = _codex_path(sid)
     if not target:
         return f"codex session not found: {sid}"
-    lines = []
+    turns = []
     with open(target, errors="replace") as fh:
         for line in fh:
             try:
@@ -269,19 +341,19 @@ def preview_codex(sid, n=30):
                 continue
             pl = o.get("payload", {}) if isinstance(o.get("payload"), dict) else {}
             if o.get("type") == "event_msg" and pl.get("type") == "user_message":
-                t = clean_title(pl.get("message", ""), 500)
-                if t:
-                    lines.append(f"[user] {t}")
+                txt = body_text(pl.get("message", ""))
+                if txt:
+                    turns.append(("user", txt, o.get("timestamp")))
             elif o.get("type") == "response_item" and pl.get("type") == "message":
                 role = pl.get("role", "?")
                 txt = ""
                 for b in pl.get("content", []) or []:
                     if isinstance(b, dict) and b.get("type") in ("output_text", "input_text"):
                         txt += b.get("text", "")
-                txt = clean_title(txt, 500)
+                txt = body_text(txt)
                 if txt and role != "user":
-                    lines.append(f"[ai] {txt}")
-    return f"--- codex {sid} ({len(lines)} msgs)\n" + "\n".join(lines[-n:])
+                    turns.append(("ai", txt, o.get("timestamp")))
+    return render_preview("codex", sid, turns[-n:], total=len(turns))
 
 
 # ---------------- agy (antigravity cli) ----------------
@@ -395,7 +467,7 @@ def preview_agy(cid, n=30):
     p = _agy_transcript(cid)
     if not os.path.exists(p):
         return f"agy transcript not found: {cid}"
-    lines = []
+    turns = []
     with open(p, errors="replace") as fh:
         for line in fh:
             try:
@@ -403,15 +475,15 @@ def preview_agy(cid, n=30):
             except Exception:
                 continue
             t = o.get("type", "")
-            c = clean_title(re.sub(r"</?USER_REQUEST>|</?ADDITIONAL_METADATA>",
-                                   " ", o.get("content", "") or ""), 500)
+            c = body_text(re.sub(r"</?USER_REQUEST>|</?ADDITIONAL_METADATA>",
+                                 " ", o.get("content", "") or ""))
             if not c:
                 continue
             if t == "USER_INPUT":
-                lines.append(f"[user] {c}")
+                turns.append(("user", c, o.get("timestamp")))
             elif t in ("AGENT_OUTPUT", "ASSISTANT", "MODEL_OUTPUT"):
-                lines.append(f"[ai] {c}")
-    return f"--- agy {cid} ({len(lines)} msgs)\n" + "\n".join(lines[-n:])
+                turns.append(("ai", c, o.get("timestamp")))
+    return render_preview("agy", cid, turns[-n:], total=len(turns))
 
 
 # ---------------- opencode ----------------
@@ -491,21 +563,40 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
 def preview_opencode(sid, n=30):
     try:
         con = _oc_db()
-        rows = con.execute(
-            "SELECT data FROM part WHERE session_id=? ORDER BY time_created DESC LIMIT ?",
-            (sid, n)).fetchall()
+        try:
+            rows = con.execute(
+                "SELECT p.data, p.time_created, m.data FROM part p "
+                "LEFT JOIN message m ON m.id = p.message_id "
+                "WHERE p.session_id=? ORDER BY p.time_created DESC LIMIT ?",
+                (sid, n)).fetchall()
+        except sqlite3.Error:
+            # older/simplified stores without a message table
+            rows = [(d, None, None) for (d,) in con.execute(
+                "SELECT data FROM part WHERE session_id=? "
+                "ORDER BY time_created DESC LIMIT ?", (sid, n)).fetchall()]
         con.close()
     except Exception as e:
         return f"opencode read error: {e}"
-    lines = []
-    for (d,) in reversed(rows):
+    turns = []
+    for d, ts, md in reversed(rows):
         try:
             o = json.loads(d) if isinstance(d, str) else d
         except Exception:
             continue
-        if isinstance(o, dict) and o.get("type") == "text" and o.get("text", "").strip():
-            lines.append("[msg] " + clean_title(o["text"], 500))
-    return f"--- opencode {sid} ({len(lines)} parts)\n" + "\n".join(lines[-n:])
+        if not (isinstance(o, dict) and o.get("type") == "text"):
+            continue
+        txt = body_text(o.get("text", ""))
+        if not txt:
+            continue
+        role = "msg"
+        try:
+            mo = json.loads(md) if isinstance(md, str) else md
+            if isinstance(mo, dict) and mo.get("role"):
+                role = mo["role"]
+        except Exception:
+            pass
+        turns.append((_role_label(role), txt, ts))
+    return render_preview("opencode", sid, turns, total=len(turns))
 
 
 # ---------------- devin ----------------
@@ -540,28 +631,29 @@ def _devin_transcript(sid):
 
 def preview_devin(sid, n=20):
     p = _devin_transcript(sid)
-    head = f"--- devin {sid}\nresume: devin -r {sid}\n"
+    resume = f"resume: devin -r {sid}"
     if not os.path.exists(p):
-        return head + "(no local transcript)"
+        return f"--- devin {sid}\n{resume}\n(no local transcript)"
     try:
         with open(p, errors="replace") as fh:
             d = json.load(fh)
     except Exception as e:
-        return head + f"(transcript unreadable: {e})"
+        return f"--- devin {sid}\n{resume}\n(transcript unreadable: {e})"
     steps = d.get("steps", []) if isinstance(d, dict) else []
-    lines = []
+    turns = []
     for s in steps:
         if not isinstance(s, dict):
             continue
         if s.get("source") in ("system",):
             continue
-        txt = clean_title(str(s.get("message", "")), 300)
+        txt = body_text(str(s.get("message", "")))
         if txt:
-            lines.append(f"[{s.get('source', '?')}] {txt}")
-    lines = lines[-n:]
+            turns.append((_role_label(s.get("source")), txt,
+                          s.get("timestamp")))
     meta = d.get("agent", {}) if isinstance(d, dict) else {}
     info = f"model={meta.get('model_name', '?')} steps={len(steps)}"
-    return head + info + "\n" + "\n".join(lines)
+    return render_preview("devin", sid, turns[-n:], total=len(turns),
+                          extra=[resume, info])
 
 
 # ---------------- store info ----------------
@@ -1008,7 +1100,6 @@ def cmd_agents():
 
 
 def cmd_grep(args):
-    import shutil
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
         return 1

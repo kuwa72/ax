@@ -146,32 +146,42 @@ class TestAx(unittest.TestCase):
     def test_preview_claude(self):
         text = self.mod.preview_claude("sess-c1a2b3", 10)
         self.assertIn("--- claude sess-c1a2b3", text)
-        self.assertIn("[user] Refactor the login form", text)
-        self.assertIn("[ai] I'll help you refactor the login form.", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Refactor the login form", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("I'll help you refactor the login form.", text)
 
     def test_preview_codex(self):
         text = self.mod.preview_codex("codex-1", 10)
         self.assertIn("--- codex codex-1", text)
-        self.assertIn("[user] Review this function", text)
-        self.assertIn("[ai] The function looks okay.", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Review this function", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("The function looks okay.", text)
 
     def test_preview_agy(self):
         text = self.mod.preview_agy("agy-1", 10)
         self.assertIn("--- agy agy-1", text)
-        self.assertIn("[user] Plan the migration", text)
-        self.assertIn("[ai] Okay, let's start with plan the migration.", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Plan the migration", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("Okay, let's start with plan the migration.", text)
 
     def test_preview_opencode(self):
         text = self.mod.preview_opencode("oc-1", 10)
         self.assertIn("--- opencode oc-1", text)
-        self.assertIn("[msg] Explain this code", text)
-        self.assertIn("[msg] Here is an explanation", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Explain this code", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("Here is an explanation", text)
 
     def test_preview_devin(self):
         text = self.mod.preview_devin("dev-1", 10)
         self.assertIn("--- devin dev-1", text)
-        self.assertIn("[user] Build a landing page", text)
-        self.assertIn("[assistant] I will build a landing page", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Build a landing page", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("I will build a landing page", text)
         self.assertNotIn("this should be ignored", text)
 
     def test_cmd_list_json(self):

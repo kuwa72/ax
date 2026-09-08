@@ -49,6 +49,30 @@ def generate_claude():
                     ]
                 },
             },
+            {
+                "type": "user",
+                "message": {
+                    "content": (
+                        "Please handle validation errors gracefully and show inline "
+                        "error messages right next to each form field.\n"
+                        "Also keep the submit button disabled while the request is "
+                        "in flight so users cannot trigger duplicate submissions."
+                    ),
+                },
+                "timestamp": "2025-01-15T10:01:00.000Z",
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Done. Validation errors now render inline.",
+                        }
+                    ],
+                },
+                "timestamp": "2025-01-15T10:02:00.000Z",
+            },
         ],
     )
     write_jsonl(
@@ -202,8 +226,14 @@ def generate_opencode():
     con.execute(
         "CREATE TABLE session (id TEXT, directory TEXT, title TEXT, time_updated INTEGER)"
     )
+    # mirror the real schema: part.message_id -> message.id, role in message.data
     con.execute(
-        "CREATE TABLE part (session_id TEXT, data TEXT, time_created INTEGER)"
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, "
+        "time_created INTEGER, time_updated INTEGER, data TEXT)"
+    )
+    con.execute(
+        "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, "
+        "session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)"
     )
     con.execute(
         "INSERT INTO session VALUES (?, ?, ?, ?)",
@@ -213,18 +243,27 @@ def generate_opencode():
         "INSERT INTO session VALUES (?, ?, ?, ?)",
         ("oc-2", "/home/alice/opencode2", "open test two", 1700000300000),
     )
-    con.execute(
-        "INSERT INTO part VALUES (?, ?, ?)",
-        ("oc-1", '{"type": "text", "text": "Explain this code"}', 1700000200000),
-    )
-    con.execute(
-        "INSERT INTO part VALUES (?, ?, ?)",
-        ("oc-1", '{"type": "text", "text": "Here is an explanation"}', 1700000200100),
-    )
-    con.execute(
-        "INSERT INTO part VALUES (?, ?, ?)",
-        ("oc-2", '{"type": "text", "text": "Plan the feature"}', 1700000300000),
-    )
+    msgs = [
+        ("ocm-1", "oc-1", "user", 1700000200000),
+        ("ocm-2", "oc-1", "assistant", 1700000200100),
+        ("ocm-3", "oc-2", "user", 1700000300000),
+    ]
+    for mid, sid, role, ts in msgs:
+        con.execute(
+            "INSERT INTO message VALUES (?, ?, ?, ?, ?)",
+            (mid, sid, ts, ts, json.dumps({"role": role})),
+        )
+    parts = [
+        ("ocp-1", "ocm-1", "oc-1", "Explain this code", 1700000200000),
+        ("ocp-2", "ocm-2", "oc-1", "Here is an explanation", 1700000200100),
+        ("ocp-3", "ocm-3", "oc-2", "Plan the feature", 1700000300000),
+    ]
+    for pid, mid, sid, text, ts in parts:
+        con.execute(
+            "INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)",
+            (pid, mid, sid, ts, ts,
+             json.dumps({"type": "text", "text": text})),
+        )
     con.commit()
     con.close()
 
