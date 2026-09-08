@@ -1,5 +1,7 @@
 # ax — 5エージェント横断セッションピッカー
 
+[![CI](https://github.com/kuwa72/ax/actions/workflows/ci.yml/badge.svg)](https://github.com/kuwa72/ax/actions)
+
 `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` の
 過去セッションを1つの fzf で一覧・プレビュー・resume する。
 
