@@ -91,6 +91,27 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
   全プロバイダで利用可。一覧の title 列のみに反映される。
 
+## エージェントから使う (Agent Skill)
+
+`ax` はエージェント自身から呼び出せる。Claude / Codex / OpenCode 等で Skill として導入するには：
+
+```bash
+# ax 実行ファイルを PATH に置く
+export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
+
+# Skill を全エージェントに導入
+npx skills add kuwa72/ax --skill ax -g
+```
+
+エージェントの read-first ワークフロー：
+
+1. `ax list --json` で候補を取得
+2. `agent` / `title` / `cwd` / `epoch` を要約してユーザーに提示
+3. 必要があれば `ax preview --json <agent> <id>` で本文確認
+4. ユーザー承認後にのみ `ax resume <agent> <id>` を実行
+
+JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
+
 ## データ源 (ローカルのみ)
 
 - claude: `~/.claude/projects/*/*.jsonl`
