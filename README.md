@@ -8,6 +8,16 @@
 
 Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all five, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
+```
+
+Installs the single-file `ax` script to `~/.local/bin/ax`. Requirements: `python3` and `fzf >= 0.44`. Env overrides: `AX_BIN_DIR` (install dir), `AX_REF` (git ref, default `main`).
+
+Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
+
 ## Usage
 
 ```sh
