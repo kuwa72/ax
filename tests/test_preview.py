@@ -168,5 +168,50 @@ class TestPreviewFormat(unittest.TestCase):
         self.assertIn("not found", self.mod.preview_agy("no-such-id"))
 
 
+class TestAgyPlannerResponse(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._orig_home = os.environ.get("HOME")
+        cls.tmp = tempfile.mkdtemp(prefix="ax_agy_planner_home_")
+        for src, dst in [
+            ("claude", ".claude"),
+            ("codex", ".codex"),
+            ("gemini", ".gemini"),
+            ("local", ".local"),
+        ]:
+            s = os.path.join(FIXTURES, src)
+            d = os.path.join(cls.tmp, dst)
+            if os.path.isdir(s):
+                shutil.copytree(s, d)
+        cls.mod = load_ax(cls.tmp)
+        # write a synthetic agy transcript with a PLANNER_RESPONSE
+        cid = "agy-planner"
+        p = os.path.join(cls.mod.AGY_HOME, "brain", cid,
+                         ".system_generated", "logs", "transcript.jsonl")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(json.dumps({"type": "USER_INPUT",
+                                "content": "<USER_REQUEST>plan the migration</USER_REQUEST> extra text",
+                                "timestamp": 1700000000000}) + "\n")
+            f.write(json.dumps({"type": "PLANNER_RESPONSE",
+                                "content": "I will plan the migration step by step.",
+                                "timestamp": 1700000001000}) + "\n")
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._orig_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = cls._orig_home
+        shutil.rmtree(cls.tmp)
+
+    def test_agy_planner_response_is_ai(self):
+        text = self.mod.preview_agy("agy-planner", 10)
+        self.assertIn("[user]", text)
+        self.assertIn("plan the migration", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("I will plan the migration step by step.", text)
+
+
 if __name__ == "__main__":
     unittest.main()
