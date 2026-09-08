@@ -7,6 +7,8 @@ Usage:
     ax grep <query>         body-search all agents -> fzf -> resume
     ax preview <agent> <id> [--json]
     ax resume <agent> <id>
+    ax rm <agent> <id> [--yes] [--hard]   delete a session (devin/codex only)
+    ax rename <agent> <id> --name "..."   set an ax-local display title
     ax agents               show provider status, store size and count
 
 Local stores only, no network. One provider failing never breaks the others.
@@ -16,6 +18,7 @@ import json
 import mmap
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -28,6 +31,11 @@ AGENTS = ("claude", "codex", "agy", "opencode", "devin")
 
 DEFAULT_LIMIT = 300
 CACHE_DIR = os.path.join(HOME, ".cache", "ax")
+
+# ax-local display-title overrides (`ax rename`). Provider stores are never
+# written to, so rename is an ax-side alias that survives across all providers.
+AX_DATA_DIR = os.path.join(HOME, ".local", "share", "ax")
+TITLES_PATH = os.path.join(AX_DATA_DIR, "titles.json")
 
 RESUME_CMD = {
     "claude": lambda i: (["claude", "--resume", i]),
@@ -872,6 +880,24 @@ def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
     return hits
 
 
+# ---------------- rm / rename ----------------
+def _load_titles():
+    try:
+        with open(TITLES_PATH, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_titles(d):
+    os.makedirs(AX_DATA_DIR, exist_ok=True)
+    tmp = TITLES_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, TITLES_PATH)
+
+
 def collect(agents, limit, no_cache=False):
     rows = []
     for a in agents:
@@ -879,6 +905,12 @@ def collect(agents, limit, no_cache=False):
             rows.extend(LISTERS[a](limit=limit, no_cache=no_cache))
         except Exception as e:
             print(f"warn: {a}: {e}", file=sys.stderr)
+    titles = _load_titles()
+    if titles:
+        for r in rows:
+            t = titles.get(f"{r['agent']}:{r['id']}")
+            if t:
+                r["title"] = t
     rows.sort(key=lambda r: r["epoch"], reverse=True)
     return rows[:limit]
 
@@ -1006,8 +1038,104 @@ def cmd_grep(args):
     return cmd_resume([parts[0], parts[1]])
 
 
+def _find_session(agent, sid):
+    for r in collect([agent], 2000, no_cache=True):
+        if r["id"] == sid:
+            return r
+    return None
+
+
+def _confirm(prompt, assume_yes):
+    if assume_yes:
+        return True
+    try:
+        ans = input(prompt)
+    except EOFError:
+        print("\nax: aborted (non-interactive stdin; pass --yes to skip)",
+              file=sys.stderr)
+        return False
+    return ans.strip().lower() in ("y", "yes")
+
+
+def _rm_argv(agent, sid, hard):
+    if agent == "devin":
+        return ["devin", "rm", "--force", sid]
+    if agent == "codex":
+        if hard:
+            return ["codex", "delete", "--force", sid]
+        return ["codex", "archive", sid]
+    return None
+
+
+def cmd_rm(args):
+    yes = "--yes" in args or "-y" in args
+    hard = "--hard" in args
+    pos = [a for a in args if not a.startswith("-")]
+    if len(pos) < 2:
+        print("usage: ax rm <agent> <id> [--yes] [--hard]", file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in AGENTS:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    argv = _rm_argv(agent, sid, hard)
+    if argv is None:
+        print(f"ax: rm not supported for {agent} (supported: devin, codex)",
+              file=sys.stderr)
+        return 2
+    target = _find_session(agent, sid)
+    if target is None:
+        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        return 1
+    if not _confirm(f"ax: remove {agent} session {sid} "
+                    f"\"{target['title']}\"? [y/N] ", yes):
+        print("ax: aborted", file=sys.stderr)
+        return 1
+    if shutil.which(argv[0]) is None:
+        print(f"ax: {argv[0]} not found in PATH", file=sys.stderr)
+        return 1
+    print(f"+ {' '.join(argv)}", file=sys.stderr)
+    p = subprocess.run(argv)
+    if p.returncode != 0:
+        print(f"warn: {' '.join(argv)} exited {p.returncode}", file=sys.stderr)
+    return p.returncode
+
+
+def cmd_rename(args):
+    name, pos, i = None, [], 0
+    while i < len(args):
+        if args[i] == "--name" and i + 1 < len(args):
+            i += 1
+            name = args[i]
+        elif not args[i].startswith("-"):
+            pos.append(args[i])
+        i += 1
+    if len(pos) < 2 or name is None:
+        print('usage: ax rename <agent> <id> --name "new title" '
+              '(empty name clears the alias)', file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in AGENTS:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    if _find_session(agent, sid) is None:
+        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        return 1
+    name = clean_title(name)
+    titles = _load_titles()
+    key = f"{agent}:{sid}"
+    if name:
+        titles[key] = name
+        _save_titles(titles)
+        print(f"ax: {agent} {sid} display title -> {name}")
+    else:
+        if titles.pop(key, None) is not None:
+            _save_titles(titles)
+        print(f"ax: {agent} {sid} display title cleared")
+    return 0
+
+
 def cmd_picker():
-    import shutil
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
         return 1
@@ -1048,6 +1176,10 @@ def main():
         return cmd_preview(rest)
     if cmd == "resume":
         return cmd_resume(rest)
+    if cmd == "rm":
+        return cmd_rm(rest)
+    if cmd == "rename":
+        return cmd_rename(rest)
     if cmd == "agents":
         return cmd_agents()
     if cmd in ("-h", "--help", "help"):
