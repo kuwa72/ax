@@ -3,15 +3,19 @@
 
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
-    ax list [--json] [--agent NAME] [--limit N] [--no-cache]
+    ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
+    ax grep <query>         body-search all agents -> fzf -> resume
     ax preview <agent> <id> [--json]
     ax resume <agent> <id>
+    ax rm <agent> <id> [--yes] [--hard]   delete a session (devin/codex only)
+    ax rename <agent> <id> --name "..."   set an ax-local display title
     ax agents               show provider status, store size and count
 
 Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
 """
 import json
+import mmap
 import os
 import re
 import shutil
@@ -28,6 +32,11 @@ AGENTS = ("claude", "codex", "agy", "opencode", "devin")
 
 DEFAULT_LIMIT = 300
 CACHE_DIR = os.path.join(HOME, ".cache", "ax")
+
+# ax-local display-title overrides (`ax rename`). Provider stores are never
+# written to, so rename is an ax-side alias that survives across all providers.
+AX_DATA_DIR = os.path.join(HOME, ".local", "share", "ax")
+TITLES_PATH = os.path.join(AX_DATA_DIR, "titles.json")
 
 RESUME_CMD = {
     "claude": lambda i: (["claude", "--resume", i]),
@@ -154,6 +163,20 @@ def render_preview(agent, sid, turns, extra=(), width=0, total=None):
 
 
 # ---------------- claude ----------------
+def _claude_path(sid):
+    root = os.path.join(HOME, ".claude", "projects")
+    if not os.path.isdir(root):
+        return None
+    with os.scandir(root) as it:
+        for proj in it:
+            if not proj.is_dir():
+                continue
+            p = os.path.join(proj.path, sid + ".jsonl")
+            if os.path.exists(p):
+                return p
+    return None
+
+
 def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".claude", "projects")
@@ -210,14 +233,7 @@ def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
 
 
 def preview_claude(sid, n=30):
-    root = os.path.join(HOME, ".claude", "projects")
-    path = None
-    with os.scandir(root) as it:
-        for proj in it:
-            p = os.path.join(proj.path, sid + ".jsonl")
-            if os.path.exists(p):
-                path = p
-                break
+    path = _claude_path(sid)
     if not path:
         return f"claude session not found: {sid}"
     turns = []
@@ -251,6 +267,17 @@ def preview_claude(sid, n=30):
 
 
 # ---------------- codex ----------------
+def _codex_path(sid):
+    root = os.path.join(HOME, ".codex", "sessions")
+    if not os.path.isdir(root):
+        return None
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            if sid in fn and fn.endswith(".jsonl"):
+                return os.path.join(dp, fn)
+    return None
+
+
 def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".codex", "sessions")
@@ -302,15 +329,7 @@ def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
 
 
 def preview_codex(sid, n=30):
-    root = os.path.join(HOME, ".codex", "sessions")
-    target = None
-    for dp, _, fns in os.walk(root):
-        for fn in fns:
-            if sid in fn and fn.endswith(".jsonl"):
-                target = os.path.join(dp, fn)
-                break
-        if target:
-            break
+    target = _codex_path(sid)
     if not target:
         return f"codex session not found: {sid}"
     turns = []
@@ -339,6 +358,11 @@ def preview_codex(sid, n=30):
 
 # ---------------- agy (antigravity cli) ----------------
 AGY_HOME = os.path.join(HOME, ".gemini", "antigravity-cli")
+
+
+def _agy_transcript(cid):
+    return os.path.join(AGY_HOME, "brain", cid, ".system_generated", "logs",
+                        "transcript.jsonl")
 
 
 def _agy_history():
@@ -418,7 +442,7 @@ def list_agy(limit=DEFAULT_LIMIT, no_cache=False):
 
 
 def _agy_first_input(cid):
-    p = os.path.join(AGY_HOME, "brain", cid, ".system_generated", "logs", "transcript.jsonl")
+    p = _agy_transcript(cid)
     if not os.path.exists(p):
         return ""
     try:
@@ -440,7 +464,7 @@ def _agy_first_input(cid):
 
 
 def preview_agy(cid, n=30):
-    p = os.path.join(AGY_HOME, "brain", cid, ".system_generated", "logs", "transcript.jsonl")
+    p = _agy_transcript(cid)
     if not os.path.exists(p):
         return f"agy transcript not found: {cid}"
     turns = []
@@ -600,8 +624,13 @@ def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
     return out
 
 
+def _devin_transcript(sid):
+    return os.path.join(HOME, ".local", "share", "devin", "cli", "transcripts",
+                        sid + ".json")
+
+
 def preview_devin(sid, n=20):
-    p = os.path.join(HOME, ".local", "share", "devin", "cli", "transcripts", sid + ".json")
+    p = _devin_transcript(sid)
     resume = f"resume: devin -r {sid}"
     if not os.path.exists(p):
         return f"--- devin {sid}\n{resume}\n(no local transcript)"
@@ -739,6 +768,228 @@ PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_a
               "opencode": preview_opencode, "devin": preview_devin}
 
 
+# ---------------- grep (body search) ----------------
+def _grep_pats(query):
+    """(byte patterns for raw-line prefilter, str pattern for extracted text).
+
+    JSONL stores non-ASCII text both raw (UTF-8) and JSON-escaped (\\uXXXX),
+    so the byte prefilter checks both forms.
+    """
+    raw = query.encode("utf-8")
+    esc = json.dumps(query, ensure_ascii=True)[1:-1].encode("ascii")
+    pats_b = [re.compile(re.escape(raw), re.IGNORECASE)]
+    if esc != raw:
+        pats_b.append(re.compile(re.escape(esc), re.IGNORECASE))
+    return pats_b, re.compile(re.escape(query), re.IGNORECASE)
+
+
+def _file_might_contain(path, pats_b):
+    """Cheap whole-file check via mmap so large transcripts are skipped fast."""
+    try:
+        with open(path, "rb") as fh:
+            try:
+                mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+            except ValueError:  # empty file
+                return False
+            try:
+                return any(p.search(mm) for p in pats_b)
+            finally:
+                mm.close()
+    except OSError:
+        return False
+
+
+def _snippet(text, pat, width=140):
+    t = re.sub(r"\s+", " ", text or "").strip()
+    m = pat.search(t)
+    if not m:
+        return t[:width]
+    s = max(0, m.start() - width // 2)
+    e = min(len(t), s + width)
+    if e - s < width:
+        s = max(0, e - width)
+    return ("…" if s > 0 else "") + t[s:e] + ("…" if e < len(t) else "")
+
+
+def _grep_jsonl(path, pats_b, pat_s, extract, max_hits=2):
+    """Return up to max_hits snippets from a JSONL transcript.
+
+    `extract(obj)` must return the message-body text only, so metadata-only
+    matches (cwd etc.) never produce a hit.
+    """
+    out = []
+    if not path or not os.path.exists(path):
+        return out
+    if not _file_might_contain(path, pats_b):
+        return out
+    try:
+        with open(path, "rb") as fh:
+            for line in fh:
+                if not any(p.search(line) for p in pats_b):
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                txt = extract(o)
+                if txt and pat_s.search(txt):
+                    out.append(_snippet(txt, pat_s))
+                    if len(out) >= max_hits:
+                        break
+    except OSError:
+        pass
+    return out
+
+
+def _claude_text(o):
+    msg = o.get("message", {})
+    c = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return " ".join(b.get("text", "") for b in c
+                        if isinstance(b, dict) and b.get("type")
+                        in ("text", "input_text", "output_text"))
+    return ""
+
+
+def _codex_text(o):
+    pl = o.get("payload") if isinstance(o.get("payload"), dict) else {}
+    if pl.get("type") == "user_message" and isinstance(pl.get("message"), str):
+        return pl["message"]
+    if pl.get("type") == "message":
+        return " ".join(b.get("text", "") for b in pl.get("content") or []
+                        if isinstance(b, dict) and b.get("type")
+                        in ("text", "input_text", "output_text"))
+    return ""
+
+
+def _agy_text(o):
+    if o.get("type") in ("USER_INPUT", "AGENT_OUTPUT", "ASSISTANT", "MODEL_OUTPUT"):
+        c = o.get("content") or ""
+        if isinstance(c, str):
+            return re.sub(r"</?USER_REQUEST>|</?ADDITIONAL_METADATA>", " ", c)
+    return ""
+
+
+def grep_claude(sid, pats_b, pat_s, query, max_hits=2):
+    return _grep_jsonl(_claude_path(sid), pats_b, pat_s, _claude_text, max_hits)
+
+
+def grep_codex(sid, pats_b, pat_s, query, max_hits=2):
+    return _grep_jsonl(_codex_path(sid), pats_b, pat_s, _codex_text, max_hits)
+
+
+def grep_agy(sid, pats_b, pat_s, query, max_hits=2):
+    return _grep_jsonl(_agy_transcript(sid), pats_b, pat_s, _agy_text, max_hits)
+
+
+def grep_opencode(sid, pats_b, pat_s, query, max_hits=2):
+    out = []
+    try:
+        con = _oc_db()
+        if con is None:
+            return out
+        # LIKE is ASCII case-insensitive; ESCAPE makes %_ in the query literal.
+        # Match the JSON-escaped form too (data may store non-ASCII as \uXXXX).
+        def _like(q):
+            return "%" + re.sub(r"([%_\\])", r"\\\1", q) + "%"
+        likes = [_like(query)]
+        esc = json.dumps(query, ensure_ascii=True)[1:-1]
+        if esc != query:
+            likes.append(_like(esc))
+        where = " OR ".join("data LIKE ? ESCAPE '\\'" for _ in likes)
+        rows = con.execute(
+            f"SELECT data FROM part WHERE session_id=? AND ({where}) LIMIT ?",
+            (sid, *likes, max_hits * 8)).fetchall()
+        con.close()
+    except Exception:
+        return out
+    for (d,) in rows:
+        try:
+            o = json.loads(d) if isinstance(d, str) else d
+        except Exception:
+            continue
+        if not isinstance(o, dict) or o.get("type") != "text":
+            continue
+        txt = o.get("text")
+        if isinstance(txt, str) and pat_s.search(txt):
+            out.append(_snippet(txt, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def grep_devin(sid, pats_b, pat_s, query, max_hits=2):
+    p = _devin_transcript(sid)
+    out = []
+    if not os.path.exists(p) or not _file_might_contain(p, pats_b):
+        return out
+    try:
+        with open(p, errors="replace") as fh:
+            d = json.load(fh)
+    except Exception:
+        return out
+    steps = d.get("steps", []) if isinstance(d, dict) else []
+    for s in steps:
+        if not isinstance(s, dict) or s.get("source") in ("system",):
+            continue
+        txt = str(s.get("message", "") or "")
+        if pat_s.search(txt):
+            out.append(_snippet(txt, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
+            "opencode": grep_opencode, "devin": grep_devin}
+
+
+def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
+                  no_cache=False):
+    """Body-search collected sessions; one row per match snippet."""
+    if not query:
+        return []
+    pats_b, pat_s = _grep_pats(query)
+    hits = []
+    for r in collect(agents, limit, no_cache=no_cache):
+        grep = GREPPERS.get(r["agent"])
+        if grep is None:
+            continue
+        try:
+            snippets = grep(r["id"], pats_b, pat_s, query, per_session)
+        except Exception as e:
+            print(f"warn: grep {r['agent']}:{r['id']}: {e}", file=sys.stderr)
+            continue
+        for s in snippets:
+            rr = dict(r)
+            rr["match"] = s
+            rr["title"] = f"{r['title']} ▸ {s}" if r["title"] else s
+            hits.append(rr)
+        if len(hits) >= max_rows:
+            break
+    return hits
+
+
+# ---------------- rm / rename ----------------
+def _load_titles():
+    try:
+        with open(TITLES_PATH, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_titles(d):
+    os.makedirs(AX_DATA_DIR, exist_ok=True)
+    tmp = TITLES_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, TITLES_PATH)
+
+
 def collect(agents, limit, no_cache=False):
     rows = []
     for a in agents:
@@ -746,6 +997,12 @@ def collect(agents, limit, no_cache=False):
             rows.extend(LISTERS[a](limit=limit, no_cache=no_cache))
         except Exception as e:
             print(f"warn: {a}: {e}", file=sys.stderr)
+    titles = _load_titles()
+    if titles:
+        for r in rows:
+            t = titles.get(f"{r['agent']}:{r['id']}")
+            if t:
+                r["title"] = t
     rows.sort(key=lambda r: r["epoch"], reverse=True)
     return rows[:limit]
 
@@ -761,6 +1018,7 @@ def fmt_tsv(rows):
 
 def cmd_list(args):
     as_json, agents, limit, no_cache = False, list(AGENTS), DEFAULT_LIMIT, False
+    grep_q = None
     i = 0
     while i < len(args):
         if args[i] == "--json":
@@ -773,8 +1031,14 @@ def cmd_list(args):
         elif args[i] == "--limit" and i + 1 < len(args):
             i += 1
             limit = int(args[i])
+        elif args[i] == "--grep" and i + 1 < len(args):
+            i += 1
+            grep_q = args[i]
         i += 1
-    rows = collect(agents, limit, no_cache=no_cache)
+    if grep_q:
+        rows = grep_sessions(grep_q, agents, limit, no_cache=no_cache)
+    else:
+        rows = collect(agents, limit, no_cache=no_cache)
     if as_json:
         print(json.dumps(rows, ensure_ascii=False))
     elif rows:
@@ -835,6 +1099,133 @@ def cmd_agents():
             print(f"{a}: not found")
 
 
+def cmd_grep(args):
+    if not shutil.which("fzf"):
+        print("ax: fzf not found in PATH", file=sys.stderr)
+        return 1
+    q = " ".join(a for a in args if not a.startswith("-")).strip()
+    if not q:
+        print("usage: ax grep <query>", file=sys.stderr)
+        return 1
+    rows = grep_sessions(q, list(AGENTS), 400)
+    if not rows:
+        print(f"ax: no body hits for: {q}", file=sys.stderr)
+        return 1
+    fzf = ["fzf", "--delimiter", "\t",
+           "--with-nth", "1,4,5,7",
+           "--preview", f"{SELF} preview {{1}} {{2}}",
+           "--preview-window", "right:55%:wrap",
+           "--header", f"grep: {q} | enter=resume ctrl-g=new search ctrl-a=all esc=cancel",
+           "--prompt", "grep> ",
+           "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
+                     f'read q < /dev/tty; exec "{SELF}" grep "$q"',
+           "--bind", f'ctrl-a:become:exec "{SELF}"']
+    p = subprocess.run(fzf, input=fmt_tsv(rows) + "\n", capture_output=False,
+                       text=True, stdout=subprocess.PIPE)
+    sel = (p.stdout or "").strip()
+    if p.returncode != 0 or not sel:
+        return 0
+    parts = sel.split("\t")
+    return cmd_resume([parts[0], parts[1]])
+
+
+def _find_session(agent, sid):
+    for r in collect([agent], 2000, no_cache=True):
+        if r["id"] == sid:
+            return r
+    return None
+
+
+def _confirm(prompt, assume_yes):
+    if assume_yes:
+        return True
+    try:
+        ans = input(prompt)
+    except EOFError:
+        print("\nax: aborted (non-interactive stdin; pass --yes to skip)",
+              file=sys.stderr)
+        return False
+    return ans.strip().lower() in ("y", "yes")
+
+
+def _rm_argv(agent, sid, hard):
+    if agent == "devin":
+        return ["devin", "rm", "--force", sid]
+    if agent == "codex":
+        if hard:
+            return ["codex", "delete", "--force", sid]
+        return ["codex", "archive", sid]
+    return None
+
+
+def cmd_rm(args):
+    yes = "--yes" in args or "-y" in args
+    hard = "--hard" in args
+    pos = [a for a in args if not a.startswith("-")]
+    if len(pos) < 2:
+        print("usage: ax rm <agent> <id> [--yes] [--hard]", file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in AGENTS:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    argv = _rm_argv(agent, sid, hard)
+    if argv is None:
+        print(f"ax: rm not supported for {agent} (supported: devin, codex)",
+              file=sys.stderr)
+        return 2
+    target = _find_session(agent, sid)
+    if target is None:
+        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        return 1
+    if not _confirm(f"ax: remove {agent} session {sid} "
+                    f"\"{target['title']}\"? [y/N] ", yes):
+        print("ax: aborted", file=sys.stderr)
+        return 1
+    if shutil.which(argv[0]) is None:
+        print(f"ax: {argv[0]} not found in PATH", file=sys.stderr)
+        return 1
+    print(f"+ {' '.join(argv)}", file=sys.stderr)
+    p = subprocess.run(argv)
+    if p.returncode != 0:
+        print(f"warn: {' '.join(argv)} exited {p.returncode}", file=sys.stderr)
+    return p.returncode
+
+
+def cmd_rename(args):
+    name, pos, i = None, [], 0
+    while i < len(args):
+        if args[i] == "--name" and i + 1 < len(args):
+            i += 1
+            name = args[i]
+        elif not args[i].startswith("-"):
+            pos.append(args[i])
+        i += 1
+    if len(pos) < 2 or name is None:
+        print('usage: ax rename <agent> <id> --name "new title" '
+              '(empty name clears the alias)', file=sys.stderr)
+        return 1
+    agent, sid = pos[0], pos[1]
+    if agent not in AGENTS:
+        print(f"unknown agent: {agent}", file=sys.stderr)
+        return 1
+    if _find_session(agent, sid) is None:
+        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        return 1
+    name = clean_title(name)
+    titles = _load_titles()
+    key = f"{agent}:{sid}"
+    if name:
+        titles[key] = name
+        _save_titles(titles)
+        print(f"ax: {agent} {sid} display title -> {name}")
+    else:
+        if titles.pop(key, None) is not None:
+            _save_titles(titles)
+        print(f"ax: {agent} {sid} display title cleared")
+    return 0
+
+
 def cmd_picker():
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
@@ -845,12 +1236,15 @@ def cmd_picker():
         return 1
     tsv = fmt_tsv(rows)
     # cols: 1 agent, 2 id, 3 epoch, 4 reltime, 5 short_cwd, 6 cwd, 7 title
+    # fzf 0.44: `transform` is unavailable, so ctrl-g re-execs ax via become.
     fzf = ["fzf", "--delimiter", "\t",
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
-           "--header", "claude/codex/agy/opencode/devin横断 | enter=resume esc=cancel",
-           "--prompt", "ax> "]
+           "--header", "claude/codex/agy/opencode/devin横断 | enter=resume ctrl-g=body-search esc=cancel",
+           "--prompt", "ax> ",
+           "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
+                     f'read q < /dev/tty; exec "{SELF}" grep "$q"']
     p = subprocess.run(fzf, input=tsv + "\n", capture_output=False,
                        text=True, stdout=subprocess.PIPE)
     sel = (p.stdout or "").strip()
@@ -867,10 +1261,16 @@ def main():
     cmd, rest = args[0], args[1:]
     if cmd == "list":
         return cmd_list(rest)
+    if cmd == "grep":
+        return cmd_grep(rest)
     if cmd == "preview":
         return cmd_preview(rest)
     if cmd == "resume":
         return cmd_resume(rest)
+    if cmd == "rm":
+        return cmd_rm(rest)
+    if cmd == "rename":
+        return cmd_rename(rest)
     if cmd == "agents":
         return cmd_agents()
     if cmd in ("-h", "--help", "help"):
