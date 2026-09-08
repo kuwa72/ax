@@ -20,6 +20,14 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 
 PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
+## preview 形式
+
+`ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、ターンごとに
+`[user]` / `[ai]` 等のロールヘッダ行 (+タイムスタンプ) と本文ブロックを
+空行区切りで表示する。本文は単語区切りで端末幅 (最大 80 桁) に折り返され、
+元の改行は保持される。幅は `AX_PREVIEW_WIDTH` で固定できる。
+`--json` は機械用に `{agent, id, preview}` を返す。
+
 ## resume 先
 
 | agent | command |
