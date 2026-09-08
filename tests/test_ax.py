@@ -123,6 +123,19 @@ class TestAx(unittest.TestCase):
         self.assertEqual(by_id["oc-1"]["title"], "open test one")
         self.assertEqual(by_id["oc-2"]["title"], "open test two")
 
+    def test_opencode_cache_creates_and_reuses(self):
+        rows = self.mod.list_opencode(300)
+        self.assertTrue(rows)
+        cache_path = os.path.join(self.tmp, ".cache", "ax", "opencode.json")
+        self.assertTrue(os.path.exists(cache_path))
+        rows2 = self.mod.list_opencode(300)
+        self.assertEqual(rows, rows2)
+
+    def test_opencode_cache_no_cache_matches(self):
+        rows1 = self.mod.list_opencode(300, no_cache=True)
+        rows2 = self.mod.list_opencode(300, no_cache=False)
+        self.assertEqual(rows1, rows2)
+
     def test_list_devin(self):
         rows = self.mod.list_devin(400)
         by_id = {r["id"]: r for r in rows}
@@ -181,6 +194,16 @@ class TestAx(unittest.TestCase):
         for line in lines:
             self.assertTrue(line.startswith("devin"))
 
+    def test_cmd_list_no_cache(self):
+        _, out = self._capture_stdout(self.mod.cmd_list, ["--agent", "opencode", "--no-cache"])
+        for line in out.strip().splitlines():
+            cols = line.split("\t")
+            self.assertEqual(len(cols), 7, f"bad TSV line: {line!r}")
+        _, out2 = self._capture_stdout(self.mod.cmd_list, ["--agent", "opencode"])
+        ids1 = [l.split("\t")[1] for l in out.strip().splitlines()]
+        ids2 = [l.split("\t")[1] for l in out2.strip().splitlines()]
+        self.assertEqual(ids1, ids2)
+
     def test_cmd_preview(self):
         _, out = self._capture_stdout(self.mod.cmd_preview, ["claude", "sess-c1a2b3"])
         self.assertIn("Refactor the login form", out)
@@ -188,7 +211,9 @@ class TestAx(unittest.TestCase):
     def test_cmd_agents(self):
         _, out = self._capture_stdout(self.mod.cmd_agents)
         for a in self.mod.AGENTS:
-            self.assertIn(f"{a}: ok", out)
+            line = next(l for l in out.strip().splitlines() if l.startswith(f"{a}:"))
+            self.assertIn(f"{a}: ok", line)
+            self.assertIn("sessions", line)
 
 
 if __name__ == "__main__":
