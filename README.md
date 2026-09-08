@@ -16,6 +16,8 @@ ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query>            # 5エージェント本文横断検索 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
+ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex のみ)
+ax rename <agent> <id> --name "..."   # 表示名の変更 (ax ローカル)
 ax agents                  # 各ストアの検出状態・サイズ・件数
 ```
 
@@ -35,6 +37,19 @@ PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 | agy | `agy --conversation <id>` |
 | opencode | `opencode -s <id>` |
 | devin | `devin -r <id>` |
+
+## 削除・リネーム
+
+- `ax rm` は対象セッションが一覧に存在するか確認した上で、確認プロンプト
+  (または `--yes`) を必須とする。非対話 stdin ではプロンプトが EOF で中断される。
+  - devin → `devin rm --force <id>` (完全削除)
+  - codex → `codex archive <id>` (既定はアーカイブ、`codex unarchive` で復元可)
+    / `--hard` で `codex delete --force <id>` (完全削除)
+  - claude / agy / opencode は未対応: `not supported` で終了コード非0。
+    プロバイダのストア (ファイル/SQLite) には一切書き込まない。
+- `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
+  `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
+  全プロバイダで利用可。一覧の title 列のみに反映される。
 
 ## データ源 (ローカルのみ)
 
