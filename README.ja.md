@@ -28,7 +28,15 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 `ctrl-g` で本文検索に切替、検索結果画面では `ctrl-g` で再検索・
 `ctrl-a` で全一覧に戻る (fzf 0.44 互換の `become` 使用)。
 
-PATH に足す: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
+## 導入
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
+```
+
+単一ファイルの `ax` を `~/.local/bin/ax` にインストール。必要要件: `python3` と `fzf >= 0.44`。環境変数で上書き可: `AX_BIN_DIR` (インストール先), `AX_REF` (取得する git ref, 既定 `main`)。
+
+git clone して PATH に足す運用も可: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
 ## 設定ファイル (optional)
 
