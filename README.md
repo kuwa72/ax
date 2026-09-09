@@ -6,6 +6,8 @@
 
 `ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` from a single fzf/JSON interface.
 
+![ax cross-agent session picker demo](images/demo.gif)
+
 Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all five, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
