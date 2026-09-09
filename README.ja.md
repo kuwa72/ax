@@ -7,6 +7,8 @@
 `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
+![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
+
 既存ツール (ccresume, ccsession, agf, cass, CCHV) はいずれも
 5種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
 
