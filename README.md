@@ -26,7 +26,7 @@ Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
 ax                         # fzf picker (enter=resume ctrl-g=body search ctrl-d=delete)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query> [--agent NAME] [--limit N]   # cross-agent body search -> fzf -> resume
-ax preview <agent> <id> [--json]
+ax preview <agent> <id> [--json] [--lines N]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
 ax rename <agent> <id> --name "..."   # change display title (ax local)
@@ -65,7 +65,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 
 - `limits.max_sessions`: max sessions to load in the list. Overridden by `--limit`.
 - `[limits.max_sessions]`: per-provider maximum. Providers not listed use the global value.
-- `limits.preview_lines` / `[limits.preview_lines]`: recent turns shown by `preview`.
+- `limits.preview_lines` / `[limits.preview_lines]`: recent turns shown by `preview`. Overridden by `--lines` (priority: CLI `--lines` > config > built-in default).
 - `providers.disabled`: hide from `list` / picker. `ax agents` shows them as `disabled (config)`.
 - `providers.aider.roots`: scan roots for `.aider.chat.history.md` (aider keeps history per-repo, no central index). Hidden dirs and heavy dirs (node_modules etc.) are pruned; depth is capped at 8.
 - `fzf.extra_args`: additional fzf options for picker / grep (fzf 0.44 compatible only).
@@ -84,7 +84,7 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
 - Role colors are auto-enabled on tty and can be forced with `AX_PREVIEW_COLOR=1` or disabled with `NO_COLOR=1`.
 - Width can be fixed with `AX_PREVIEW_WIDTH`.
 
-`--json` returns `{agent, id, preview}` for machines (no ANSI codes).
+`--json` returns `{agent, id, preview}` for machines (no ANSI codes). `--lines N` (a positive integer) temporarily overrides the turn count and also applies to the `preview` string in `--json` output.
 
 ## Resume targets
 
