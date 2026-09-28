@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX_PATH = os.path.join(REPO_ROOT, "ax")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
@@ -210,6 +212,21 @@ class TestAx(unittest.TestCase):
         self.assertEqual(by_id["h-1"]["title"], "hermes test one")
         self.assertEqual(by_id["h-1"]["cwd"], "/home/alice/hproj")
         self.assertEqual(by_id["h-2"]["title"], "Restart the worker")
+
+    def test_hermes_env_scrubbed_by_harness(self):
+        # Issue #31: session runners (Hermes etc.) export HERMES_HOME
+        # pointing at the real store. The harness support module must scrub
+        # it on import so tests only ever see the fixture store.
+        store = os.path.join(self.tmp, "empty_hermes_store")
+        os.makedirs(store, exist_ok=True)
+        os.environ["HERMES_HOME"] = store
+        importlib.reload(ax_test_support)
+        try:
+            self.assertNotIn("HERMES_HOME", os.environ)
+            rows = self.mod.list_hermes(400)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+        self.assertEqual({r["id"] for r in rows}, {"h-1", "h-2"})
 
     def test_preview_claude(self):
         text = self.mod.preview_claude("sess-c1a2b3", 10)
