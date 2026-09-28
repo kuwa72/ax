@@ -582,6 +582,52 @@ def _claude_path(sid):
     return None
 
 
+def _claude_row(path, sid):
+    cwd, title = "?", ""
+    try:
+        with open(path, errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 200:
+                    break
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not cwd or cwd == "?":
+                    c = o.get("cwd")
+                    if c:
+                        cwd = c
+                if not title and o.get("type") == "user":
+                    msg = o.get("message", {})
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if isinstance(content, str):
+                        title = clean_title(content)
+                    elif isinstance(content, list):
+                        for b in content:
+                            if isinstance(b, dict) and b.get("type") in ("text", "input_text"):
+                                t = clean_title(b.get("text", ""))
+                                if t:
+                                    title = t
+                                    break
+                if cwd != "?" and title:
+                    break
+    except OSError:
+        return None
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        return None
+    return {"agent": "claude", "id": sid, "epoch": epoch,
+            "cwd": cwd, "title": title or "(no preview)"}
+
+
+def _lookup_claude(sid):
+    path = _claude_path(sid)
+    if not path:
+        return None
+    return _claude_row(path, sid)
+
+
 def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".claude", "projects")
@@ -601,39 +647,11 @@ def list_claude(limit=DEFAULT_LIMIT, no_cache=False):
                 continue
     files.sort(reverse=True)
     for mtime, path in files[:limit]:
-        sid = os.path.basename(path)[:-6]
-        cwd, title = "?", ""
-        try:
-            with open(path, errors="replace") as fh:
-                for i, line in enumerate(fh):
-                    if i > 200:
-                        break
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    if not cwd or cwd == "?":
-                        c = o.get("cwd")
-                        if c:
-                            cwd = c
-                    if not title and o.get("type") == "user":
-                        msg = o.get("message", {})
-                        content = msg.get("content") if isinstance(msg, dict) else None
-                        if isinstance(content, str):
-                            title = clean_title(content)
-                        elif isinstance(content, list):
-                            for b in content:
-                                if isinstance(b, dict) and b.get("type") in ("text", "input_text"):
-                                    t = clean_title(b.get("text", ""))
-                                    if t:
-                                        title = t
-                                        break
-                    if cwd != "?" and title:
-                        break
-        except OSError:
+        row = _claude_row(path, os.path.basename(path)[:-6])
+        if row is None:
             continue
-        out.append({"agent": "claude", "id": sid, "epoch": int(mtime),
-                    "cwd": cwd, "title": title or "(no preview)"})
+        row["epoch"] = int(mtime)
+        out.append(row)
     return out
 
 
@@ -684,6 +702,55 @@ def _codex_path(sid):
     return None
 
 
+def _codex_row(path, mtime=None):
+    sid, cwd, title = None, "?", ""
+    try:
+        with open(path, errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 120:
+                    break
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                pl = o.get("payload", {}) if isinstance(o.get("payload"), dict) else {}
+                if o.get("type") == "session_meta":
+                    sid = pl.get("id") or sid
+                    cwd = pl.get("cwd") or cwd
+                elif not title and o.get("type") == "event_msg" \
+                        and pl.get("type") == "user_message":
+                    title = clean_title(pl.get("message", ""))
+                elif not title and o.get("type") == "response_item" \
+                        and pl.get("role") == "user":
+                    for b in pl.get("content", []) or []:
+                        if isinstance(b, dict) and b.get("type") == "input_text":
+                            t = clean_title(b.get("text", ""))
+                            if t:
+                                title = t
+                                break
+                if sid and cwd != "?" and title:
+                    break
+    except OSError:
+        return None
+    if mtime is None:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+    return {"agent": "codex", "id": sid or os.path.basename(path),
+            "epoch": int(mtime), "cwd": cwd, "title": title or "(no preview)"}
+
+
+def _lookup_codex(sid):
+    path = _codex_path(sid)
+    if not path:
+        return None
+    row = _codex_row(path)
+    if row is None or row["id"] != sid:
+        return None
+    return row
+
+
 def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     root = os.path.join(HOME, ".codex", "sessions")
@@ -700,37 +767,10 @@ def list_codex(limit=DEFAULT_LIMIT, no_cache=False):
                     pass
     files.sort(reverse=True)
     for mtime, path in files[:limit]:
-        sid, cwd, title = None, "?", ""
-        try:
-            with open(path, errors="replace") as fh:
-                for i, line in enumerate(fh):
-                    if i > 120:
-                        break
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    pl = o.get("payload", {}) if isinstance(o.get("payload"), dict) else {}
-                    if o.get("type") == "session_meta":
-                        sid = pl.get("id") or sid
-                        cwd = pl.get("cwd") or cwd
-                    elif not title and o.get("type") == "event_msg" \
-                            and pl.get("type") == "user_message":
-                        title = clean_title(pl.get("message", ""))
-                    elif not title and o.get("type") == "response_item" \
-                            and pl.get("role") == "user":
-                        for b in pl.get("content", []) or []:
-                            if isinstance(b, dict) and b.get("type") == "input_text":
-                                t = clean_title(b.get("text", ""))
-                                if t:
-                                    title = t
-                                    break
-                    if sid and cwd != "?" and title:
-                        break
-        except OSError:
+        row = _codex_row(path, mtime)
+        if row is None:
             continue
-        out.append({"agent": "codex", "id": sid or os.path.basename(path),
-                    "epoch": int(mtime), "cwd": cwd, "title": title or "(no preview)"})
+        out.append(row)
     return out
 
 
@@ -807,13 +847,7 @@ def list_agy(limit=DEFAULT_LIMIT, no_cache=False):
     conv = os.path.join(AGY_HOME, "conversations")
     if not os.path.isdir(conv):
         return out
-    hist = _agy_history()
-    lastmap = {}
-    try:
-        with open(os.path.join(AGY_HOME, "cache", "last_conversations.json")) as fh:
-            lastmap = {v: k for k, v in json.load(fh).items()}
-    except Exception:
-        pass
+    hist, lastmap = _agy_aux()
     dbs = []
     with os.scandir(conv) as it:
         for f in it:
@@ -824,28 +858,57 @@ def list_agy(limit=DEFAULT_LIMIT, no_cache=False):
                     pass
     dbs.sort(reverse=True)
     for mtime, dbp, cid in dbs[:limit]:
-        h = hist.get(cid, ("", "?", 0))
-        title, cwd, hts = h
-        epoch = int(max(mtime, (hts or 0) / 1000))
-        if cwd == "?" or not cwd:
-            try:
-                con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
-                row = con.execute(
-                    "SELECT data FROM trajectory_metadata_blob LIMIT 1").fetchone()
-                con.close()
-                if row and row[0]:
-                    m_ = re.search(rb"file://([^\x00-\x1f\"']+)", bytes(row[0]))
-                    if m_:
-                        cwd = m_.group(1).decode("utf-8", "replace")
-            except Exception:
-                pass
-        if (not cwd or cwd == "?") and cid in lastmap:
-            cwd = lastmap[cid]
-        if not title:
-            title = _agy_first_input(cid)
-        out.append({"agent": "agy", "id": cid, "epoch": epoch,
-                    "cwd": cwd or "?", "title": title or "(no preview)"})
+        out.append(_agy_row(cid, mtime, hist, lastmap))
     return out
+
+
+def _agy_row(cid, mtime, hist, lastmap):
+    """Build one agy list-row from a conversation db (cwd/title/epoch)."""
+    h = hist.get(cid, ("", "?", 0))
+    title, cwd, hts = h
+    epoch = int(max(mtime, (hts or 0) / 1000))
+    if cwd == "?" or not cwd:
+        dbp = os.path.join(AGY_HOME, "conversations", cid + ".db")
+        try:
+            con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
+            row = con.execute(
+                "SELECT data FROM trajectory_metadata_blob LIMIT 1").fetchone()
+            con.close()
+            if row and row[0]:
+                m_ = re.search(rb"file://([^\x00-\x1f\"']+)", bytes(row[0]))
+                if m_:
+                    cwd = m_.group(1).decode("utf-8", "replace")
+        except Exception:
+            pass
+    if (not cwd or cwd == "?") and cid in lastmap:
+        cwd = lastmap[cid]
+    if not title:
+        title = _agy_first_input(cid)
+    return {"agent": "agy", "id": cid, "epoch": epoch,
+            "cwd": cwd or "?", "title": title or "(no preview)"}
+
+
+def _agy_aux():
+    """Shared (history, lastmap) inputs for agy rows."""
+    lastmap = {}
+    try:
+        with open(os.path.join(AGY_HOME, "cache", "last_conversations.json")) as fh:
+            lastmap = {v: k for k, v in json.load(fh).items()}
+    except Exception:
+        pass
+    return _agy_history(), lastmap
+
+
+def _lookup_agy(sid):
+    dbp = os.path.join(AGY_HOME, "conversations", sid + ".db")
+    if not os.path.exists(dbp):
+        return None
+    try:
+        mtime = os.path.getmtime(dbp)
+    except OSError:
+        return None
+    hist, lastmap = _agy_aux()
+    return _agy_row(sid, mtime, hist, lastmap)
 
 
 def _agy_first_input(cid):
@@ -985,6 +1048,56 @@ def _save_list_cache(agent, limit, fingerprint, rows):
         }, fh)
 
 
+def _oc_row(sid, d, title, tu):
+    return {"agent": "opencode", "id": sid,
+            "epoch": int((tu or 0) // 1000),
+            "cwd": d or "?", "title": (title or "").strip() or "(untitled)"}
+
+
+def _lookup_opencode(sid):
+    """Single-row lookup by ID (mirrors list_opencode's child hiding)."""
+    con = _oc_db()
+    if con is None:
+        return None
+    try:
+        if _oc_has_v2(con):
+            child_ids = _oc_child_ids(con)
+            if sid in child_ids:
+                return None
+            row = con.execute(
+                "SELECT id, directory, title, time_updated FROM session_v2 "
+                "WHERE id=?", (sid,)).fetchone()
+            if row is None:
+                if "parent_id" in _oc_table_cols(con, "session"):
+                    row = con.execute(
+                        "SELECT id, directory, title, time_updated FROM session "
+                        "WHERE id=? AND (parent_id IS NULL OR parent_id = '')",
+                        (sid,)).fetchone()
+                else:
+                    row = con.execute(
+                        "SELECT id, directory, title, time_updated FROM session "
+                        "WHERE id=?", (sid,)).fetchone()
+            if row is None:
+                return None
+            return _oc_row(*row)
+        if "parent_id" in _oc_table_cols(con, "session"):
+            row = con.execute(
+                "SELECT id, directory, title, time_updated FROM session "
+                "WHERE id=? AND (parent_id IS NULL OR parent_id = '')",
+                (sid,)).fetchone()
+        else:
+            row = con.execute(
+                "SELECT id, directory, title, time_updated FROM session "
+                "WHERE id=?", (sid,)).fetchone()
+        if row is None:
+            return None
+        return _oc_row(*row)
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
 def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
     p = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
     if not os.path.exists(p):
@@ -1013,9 +1126,7 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
                     "WHERE id NOT IN (SELECT id FROM session) "
                     "AND (parent_id IS NULL OR parent_id = '') "
                     "ORDER BY time_updated DESC LIMIT ?", (limit,)):
-                rows.append({"agent": "opencode", "id": sid,
-                             "epoch": int((tu or 0) // 1000),
-                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+                rows.append(_oc_row(sid, d, title, tu))
             if legacy_parent:
                 q = ("SELECT id, directory, title, time_updated FROM session "
                      "WHERE (parent_id IS NULL OR parent_id = '') "
@@ -1026,9 +1137,7 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
             for sid, d, title, tu in con.execute(q, (limit,)):
                 if sid in child_ids:
                     continue
-                rows.append({"agent": "opencode", "id": sid,
-                             "epoch": int((tu or 0) // 1000),
-                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+                rows.append(_oc_row(sid, d, title, tu))
             rows.sort(key=lambda r: r["epoch"], reverse=True)
             rows = rows[:limit]
         else:
@@ -1040,8 +1149,7 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
                 q = ("SELECT id, directory, title, time_updated FROM session "
                      "ORDER BY time_updated DESC LIMIT ?")
             for sid, d, title, tu in con.execute(q, (limit,)):
-                rows.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
-                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+                rows.append(_oc_row(sid, d, title, tu))
     finally:
         con.close()
     _save_list_cache("opencode", limit, fingerprint, rows)
@@ -1324,6 +1432,27 @@ def _devin_try_export(sid, cache_path, n=20):
             pass
 
 
+def _devin_row(sid, wd, title, la):
+    return {"agent": "devin", "id": sid, "epoch": int(la or 0),
+            "cwd": wd or "?", "title": (title or "").strip() or "(untitled)"}
+
+
+def _lookup_devin(sid):
+    con = _devin_db()
+    if con is None:
+        return None
+    try:
+        row = con.execute(
+            "SELECT id, working_directory, title, last_activity_at FROM sessions "
+            "WHERE id=? AND hidden=0", (sid,)).fetchone()
+        con.close()
+        if row is None:
+            return None
+        return _devin_row(*row)
+    except Exception:
+        return None
+
+
 def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     try:
@@ -1333,8 +1462,7 @@ def list_devin(limit=DEFAULT_LIMIT, no_cache=False):
         for sid, wd, title, la in con.execute(
                 "SELECT id, working_directory, title, last_activity_at FROM sessions "
                 "WHERE hidden=0 ORDER BY last_activity_at DESC LIMIT ?", (limit,)):
-            out.append({"agent": "devin", "id": sid, "epoch": int(la or 0),
-                        "cwd": wd or "?", "title": (title or "").strip() or "(untitled)"})
+            out.append(_devin_row(sid, wd, title, la))
         con.close()
     except Exception:
         pass
@@ -1497,24 +1625,37 @@ def _aider_turns(path):
     return turns, starts
 
 
+def _aider_row(path):
+    """Build one aider list-row from a history file (cwd/title/epoch)."""
+    turns, starts = _aider_turns(path)
+    epoch = starts[-1] if starts else 0
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            return None
+    title = ""
+    for r, t in reversed(turns):
+        if r == "user":
+            title = clean_title(t)
+            break
+    return {"agent": "aider", "id": path, "epoch": epoch,
+            "cwd": os.path.dirname(path), "title": title or "(untitled)"}
+
+
+def _lookup_aider(sid):
+    if not os.path.exists(sid):
+        return None
+    return _aider_row(sid)
+
+
 def list_aider(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     for path in _aider_scan():
-        turns, starts = _aider_turns(path)
-        epoch = starts[-1] if starts else 0
-        if not epoch:
-            try:
-                epoch = int(os.path.getmtime(path))
-            except OSError:
-                continue
-        title = ""
-        for r, t in reversed(turns):
-            if r == "user":
-                title = clean_title(t)
-                break
-        out.append({"agent": "aider", "id": path, "epoch": epoch,
-                    "cwd": os.path.dirname(path),
-                    "title": title or "(untitled)"})
+        row = _aider_row(path)
+        if row is None:
+            continue
+        out.append(row)
     out.sort(key=lambda r: r["epoch"], reverse=True)
     return out[:limit]
 
@@ -1565,6 +1706,67 @@ def _goose_msg_text(content):
     except Exception:
         return content if isinstance(content, str) else ""
     return _text_blocks(o)
+
+
+def _goose_db_session(sid):
+    """(epoch, cwd, title) for one id from sessions.db; None if absent."""
+    con = _goose_db()
+    if con is None:
+        return None
+    try:
+        cols = _table_cols(con, "sessions")
+        if "id" not in cols:
+            return None
+        sel = ["id"] + [c for c in ("working_dir", "name", "description",
+                                    "created_at", "updated_at") if c in cols]
+        where = " WHERE id=?"
+        if "archived_at" in cols:
+            where += " AND archived_at IS NULL"
+        row = con.execute(
+            f"SELECT {', '.join(sel)} FROM sessions{where}", (sid,)).fetchone()
+        if row is None:
+            return None
+        r = dict(zip(sel, row))
+        epoch = (_epoch_from_ts(r.get("updated_at"), utc=True)
+                 or _epoch_from_ts(r.get("created_at"), utc=True))
+        title = (r.get("name") or r.get("description") or "").strip()
+        return (epoch, r.get("working_dir") or "?", title or "(untitled)")
+    except Exception as e:
+        print(f"warn: goose list: {e}", file=sys.stderr)
+        return None
+    finally:
+        con.close()
+
+
+def _goose_jsonl_session(sid):
+    """(epoch, cwd, title) for one legacy *.jsonl session; None if absent."""
+    d = _goose_dir()
+    if not d:
+        return None
+    p = os.path.join(d, sid + ".jsonl")
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, errors="replace") as fh:
+            head = json.loads(fh.readline() or "{}")
+        epoch = (_epoch_from_ts(head.get("updated_at"), utc=True)
+                 or _epoch_from_ts(head.get("created_at"), utc=True)
+                 or int(os.path.getmtime(p)))
+        title = (head.get("description") or head.get("name") or "").strip()
+        return (epoch, head.get("working_dir") or "?", title or "(untitled)")
+    except Exception:
+        return None
+
+
+def _lookup_goose(sid):
+    row = _goose_db_session(sid)
+    if row is None:
+        row = _goose_jsonl_session(sid)
+    if row is None:
+        return None
+    epoch, cwd, title = row
+    return {"agent": "goose", "id": sid, "epoch": epoch,
+            "cwd": cwd, "title": title}
 
 
 def _goose_db_sessions(limit):
@@ -1787,22 +1989,40 @@ def _omp_first_user(path, limit_bytes=65536):
     return ""
 
 
+def _omp_row(path):
+    """Build one omp list-row from a session file (cwd/title/epoch)."""
+    h, slot_title = _omp_header(path)
+    sid = _omp_sid(h, path)
+    epoch = _epoch_from_ts((h or {}).get("timestamp"), utc=True)
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            return None
+    title = ((h or {}).get("title") or slot_title or "").strip()
+    if not title:
+        title = clean_title(_omp_first_user(path)) or "(untitled)"
+    return {"agent": "omp", "id": sid, "epoch": epoch,
+            "cwd": (h or {}).get("cwd") or "?", "title": title}
+
+
+def _lookup_omp(sid):
+    p = _omp_file(sid)
+    if not p:
+        return None
+    row = _omp_row(p)
+    if row is None or row["id"] != sid:
+        return None
+    return row
+
+
 def list_omp(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     for p in _omp_files():
-        h, slot_title = _omp_header(p)
-        sid = _omp_sid(h, p)
-        epoch = _epoch_from_ts((h or {}).get("timestamp"), utc=True)
-        if not epoch:
-            try:
-                epoch = int(os.path.getmtime(p))
-            except OSError:
-                continue
-        title = ((h or {}).get("title") or slot_title or "").strip()
-        if not title:
-            title = clean_title(_omp_first_user(p)) or "(untitled)"
-        out.append({"agent": "omp", "id": sid, "epoch": epoch,
-                    "cwd": (h or {}).get("cwd") or "?", "title": title})
+        row = _omp_row(p)
+        if row is None:
+            continue
+        out.append(row)
     out.sort(key=lambda r: r["epoch"], reverse=True)
     return out[:limit]
 
@@ -1923,18 +2143,33 @@ def _vibe_cwd(meta):
     return env.get("working_directory") or meta.get("origin_directory") or "?"
 
 
+def _vibe_row(d):
+    """Build one vibe list-row from a session dir (cwd/title/epoch)."""
+    meta = _vibe_meta(d)
+    try:
+        epoch = int(os.path.getmtime(os.path.join(d, "messages.jsonl")))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("updated_at"), utc=True)
+    title = (meta.get("title") or "").strip() or \
+        clean_title(_vibe_first_user(d)) or "(untitled)"
+    return {"agent": "vibe", "id": _vibe_sid(d, meta), "epoch": epoch,
+            "cwd": _vibe_cwd(meta), "title": title}
+
+
+def _lookup_vibe(sid):
+    d = _vibe_dir(sid)
+    if not d:
+        return None
+    row = _vibe_row(d)
+    if row["id"] != sid:
+        return None
+    return row
+
+
 def list_vibe(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     for d in _vibe_dirs():
-        meta = _vibe_meta(d)
-        try:
-            epoch = int(os.path.getmtime(os.path.join(d, "messages.jsonl")))
-        except OSError:
-            epoch = _epoch_from_ts(meta.get("updated_at"), utc=True)
-        title = (meta.get("title") or "").strip() or \
-            clean_title(_vibe_first_user(d)) or "(untitled)"
-        out.append({"agent": "vibe", "id": _vibe_sid(d, meta), "epoch": epoch,
-                    "cwd": _vibe_cwd(meta), "title": title})
+        out.append(_vibe_row(d))
     out.sort(key=lambda r: r["epoch"], reverse=True)
     return out[:limit]
 
@@ -2022,6 +2257,50 @@ def _hermes_sessions():
         return con, []
 
 
+def _hermes_row(con, r):
+    epoch = _epoch_from_ts(r.get("started_at")) or \
+        _epoch_from_ts(r.get("updated_at"))
+    title = (r.get("title") or "").strip()
+    if not title:
+        title = _hermes_first_user(con, r["id"]) or "(untitled)"
+    return {"agent": "hermes", "id": r["id"], "epoch": epoch,
+            "cwd": r.get("cwd") or "?", "title": title}
+
+
+def _hermes_session(sid):
+    """(connection, row-dict) for one id; (None, None) if absent."""
+    con = _hermes_db()
+    if con is None:
+        return None, None
+    try:
+        cols = _table_cols(con, "sessions")
+        if "id" not in cols:
+            return con, None
+        sel = ["id"] + [c for c in ("title", "cwd", "source", "started_at",
+                                    "updated_at", "ended_at") if c in cols]
+        row = con.execute(
+            f"SELECT {', '.join(sel)} FROM sessions WHERE id=?", (sid,)
+            ).fetchone()
+        if row is None:
+            return con, None
+        return con, dict(zip(sel, row))
+    except Exception as e:
+        print(f"warn: hermes list: {e}", file=sys.stderr)
+        return con, None
+
+
+def _lookup_hermes(sid):
+    con, r = _hermes_session(sid)
+    if con is None or r is None:
+        if con is not None:
+            con.close()
+        return None
+    try:
+        return _hermes_row(con, r)
+    finally:
+        con.close()
+
+
 def list_hermes(limit=DEFAULT_LIMIT, no_cache=False):
     out = []
     con, rows = _hermes_sessions()
@@ -2029,13 +2308,7 @@ def list_hermes(limit=DEFAULT_LIMIT, no_cache=False):
         return out
     try:
         for r in rows[:limit]:
-            epoch = _epoch_from_ts(r.get("started_at")) or \
-                _epoch_from_ts(r.get("updated_at"))
-            title = (r.get("title") or "").strip()
-            if not title:
-                title = _hermes_first_user(con, r["id"]) or "(untitled)"
-            out.append({"agent": "hermes", "id": r["id"], "epoch": epoch,
-                        "cwd": r.get("cwd") or "?", "title": title})
+            out.append(_hermes_row(con, r))
     except Exception as e:
         print(f"warn: hermes list: {e}", file=sys.stderr)
     finally:
@@ -2778,11 +3051,8 @@ def cmd_resume(args):
         print(f"unknown agent: {agent}", file=sys.stderr)
         return 1
     argv = RESUME_CMD[agent](sid)
-    cwd = None
-    for r in collect([agent], 2000):
-        if r["id"] == sid:
-            cwd = r["cwd"]
-            break
+    target = _find_session(agent, sid)
+    cwd = target["cwd"] if target else None
     if cwd and os.path.isdir(cwd):
         os.chdir(cwd)
     print(f"+ cd {os.getcwd()} && {' '.join(argv)}", file=sys.stderr)
@@ -2862,10 +3132,33 @@ def cmd_grep(args):
 
 
 def _find_session(agent, sid):
-    for r in collect([agent], 2000, no_cache=True):
-        if r["id"] == sid:
-            return r
-    return None
+    """Single-row lookup for one session id (no full enumeration).
+
+    Used for resume cwd resolution and rm/rename existence checks.
+    Returns the session row dict, or None when the id is unknown.
+    """
+    lookup = _SESSION_LOOKUPS.get(agent)
+    if lookup is None:
+        return None
+    try:
+        row = lookup(sid)
+    except Exception as e:
+        print(f"warn: {agent}: {e}", file=sys.stderr)
+        return None
+    if row is None:
+        return None
+    titles = _load_titles()
+    t = titles.get(f"{agent}:{sid}")
+    if t:
+        row["title"] = t
+    return row
+
+
+_SESSION_LOOKUPS = {"claude": _lookup_claude, "codex": _lookup_codex,
+                    "agy": _lookup_agy, "opencode": _lookup_opencode,
+                    "devin": _lookup_devin, "aider": _lookup_aider,
+                    "goose": _lookup_goose, "omp": _lookup_omp,
+                    "vibe": _lookup_vibe, "hermes": _lookup_hermes}
 
 
 def _confirm(prompt, assume_yes):
