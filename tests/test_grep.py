@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for ax --grep (cross-agent body search) using synthetic fixtures."""
+import contextlib
 import importlib.machinery as machinery
 import importlib.util
 import io
@@ -9,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
@@ -165,6 +167,96 @@ class TestGrep(unittest.TestCase):
         _, out = self._capture_stdout(
             self.mod.cmd_list, ["--grep", "zzz-no-such-term-987"])
         self.assertEqual(out.strip(), "")
+
+    def test_cmd_grep_agent_filter_and_limit(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=[]) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            rc = self.mod.cmd_grep(["Refactor", "--agent", "devin",
+                                    "--limit", "5"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(mgrep.call_args[0][0], "Refactor")
+        self.assertEqual(mgrep.call_args[0][1], ["devin"])
+        self.assertEqual(mgrep.call_args[0][2], 5)
+
+    def test_cmd_grep_positional_only_is_query(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=[]) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            rc = self.mod.cmd_grep(["foo bar", "--agent", "codex"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(mgrep.call_args[0][0], "foo bar")
+        self.assertEqual(mgrep.call_args[0][1], ["codex"])
+
+    def test_cmd_grep_unknown_agent_empty(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions",
+                    side_effect=AssertionError("must not be called")) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            rc = self.mod.cmd_grep(["Refactor", "--agent", "no-such-agent"])
+        self.assertEqual(rc, 0)
+        mgrep.assert_not_called()
+
+    def test_cmd_grep_default_limit_400(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=[]) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.mod.cmd_grep(["Refactor"])
+        self.assertEqual(mgrep.call_args[0][2], 400)
+
+    def test_cmd_grep_multi_positional_joined(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=[]) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.mod.cmd_grep(["foo", "bar"])
+        self.assertEqual(mgrep.call_args[0][0], "foo bar")
+
+    def test_cmd_grep_usage_line(self):
+        buf = io.StringIO()
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                contextlib.redirect_stderr(buf):
+            rc = self.mod.cmd_grep([])
+        self.assertEqual(rc, 1)
+        self.assertIn("usage: ax grep", buf.getvalue())
+
+    def test_cmd_grep_fzf_binds_preserved(self):
+        rows = [{"agent": "devin", "id": "dev-1", "epoch": 1, "cwd": "?",
+                 "title": "t ▸ Refactor hit"}]
+        seen = {}
+
+        class _Proc:
+            returncode = 0
+            stdout = "devin\tdev-1\t1\tnow\t?\t?\tt ▸ Refactor hit\n"
+
+        def _run(argv, **kwargs):
+            seen["argv"] = argv
+            return _Proc()
+
+        resumed = {}
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=rows), \
+                mock.patch("subprocess.run", side_effect=_run), \
+                mock.patch.object(
+                    self.mod, "cmd_resume",
+                    side_effect=lambda a: resumed.update(args=a) or 0):
+            rc = self.mod.cmd_grep(["Refactor", "--agent", "devin"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(resumed["args"], ["devin", "dev-1"])
+        binds = [seen["argv"][i + 1]
+                 for i, a in enumerate(seen["argv"][:-1]) if a == "--bind"]
+        self.assertTrue(any(b.startswith("ctrl-g:become:") for b in binds))
+        self.assertTrue(any(b.startswith("ctrl-a:become:") for b in binds))
+        self.assertTrue(any(b.startswith("ctrl-d:become:") for b in binds))
+        header = seen["argv"][seen["argv"].index("--header") + 1]
+        for token in ("enter=resume", "ctrl-g=new search", "ctrl-a=all",
+                      "ctrl-d=delete"):
+            self.assertIn(token, header)
 
 
 if __name__ == "__main__":

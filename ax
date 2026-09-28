@@ -5,7 +5,7 @@ aider / goose / omp / vibe / hermes.
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
     ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-    ax grep <query>         body-search all agents -> fzf -> resume
+    ax grep <query> [--agent NAME] [--limit N]   body-search -> fzf -> resume
     ax preview <agent> <id> [--json]
     ax resume <agent> <id>
     ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
@@ -2766,14 +2766,34 @@ def cmd_grep(args):
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
         return 1
-    q = " ".join(a for a in args if not a.startswith("-")).strip()
+    agents, limit, pos = list(AGENTS), 400, []
+    i = 0
+    while i < len(args):
+        if args[i] == "--agent" and i + 1 < len(args):
+            i += 1
+            agents = [args[i]] if args[i] in AGENTS else []
+        elif args[i] == "--limit" and i + 1 < len(args):
+            i += 1
+            limit = int(args[i])
+        elif not args[i].startswith("-"):
+            pos.append(args[i])
+        i += 1
+    q = " ".join(pos).strip()
     if not q:
-        print("usage: ax grep <query>", file=sys.stderr)
+        print("usage: ax grep <query> [--agent NAME] [--limit N]",
+              file=sys.stderr)
         return 1
-    rows = grep_sessions(q, list(AGENTS), 400)
+    if not agents:
+        return 0
+    rows = grep_sessions(q, agents, limit)
     if not rows:
         print(f"ax: no body hits for: {q}", file=sys.stderr)
         return 1
+    filt = ""
+    if len(agents) == 1:
+        filt += f" --agent {agents[0]}"
+    if limit != 400:
+        filt += f" --limit {limit}"
     fzf = ["fzf", "--delimiter", "\t", "--ansi",
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
@@ -2782,7 +2802,7 @@ def cmd_grep(args):
                        f"{_GREP_HEADER_SUFFIX} esc=cancel",
            "--prompt", "grep> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
-                     f'read q < /dev/tty; exec "{SELF}" grep "$q"',
+                     f'read q < /dev/tty; exec "{SELF}" grep{filt} "$q"',
            "--bind", f'ctrl-a:become:exec "{SELF}"',
            *_picker_delete_bind(AGENTS)]
     fzf.extend(CONFIG["fzf"]["extra_args"])
