@@ -16,7 +16,7 @@ Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all ten, espe
 curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
 ```
 
-Installs the single-file `ax` script to `~/.local/bin/ax`. Requirements: `python3` and `fzf >= 0.44`. Env overrides: `AX_BIN_DIR` (install dir), `AX_REF` (git ref, default `main`).
+Installs the single-file `ax` script to `~/.local/bin/ax`. Requirements: `python3` and `fzf >= 0.44`. Env overrides: `AX_BIN_DIR` (install dir), `AX_REF` (git ref, default `main`). To pin a specific version: `curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | AX_REF=v0.1.0 sh`
 
 Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
