@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 
+import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AX_PATH = os.path.join(REPO_ROOT, "ax")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")

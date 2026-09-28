@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from test_ax import FIXTURES, load_ax
+import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 CASES = [
     ("claude", "sess-c1a2b3"),
