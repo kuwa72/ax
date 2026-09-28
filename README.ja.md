@@ -1,23 +1,24 @@
-# ax — 5エージェント横断セッションピッカー
+# ax — 10エージェント横断セッションピッカー
 
 [![CI](https://github.com/kuwa72/ax/actions/workflows/ci.yml/badge.svg)](https://github.com/kuwa72/ax/actions)
 
 [English version](README.md)
 
-`claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` の
+`claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` /
+`aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
 ![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
 
 既存ツール (ccresume, ccsession, agf, cass, CCHV) はいずれも
-5種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
+10種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
 
 ## 使い方
 
 ```sh
 ax                         # fzf picker (enter=resume ctrl-g=本文検索)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-ax grep <query>            # 5エージェント本文横断検索 -> fzf -> resume
+ax grep <query>            # 10エージェント本文横断検索 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex のみ)
@@ -60,6 +61,9 @@ devin = 20
 [providers]
 disabled = ["agy"]
 
+[providers.aider]
+roots = ["~"]   # .aider.chat.history.md を探す走査ルート (cwd は常に追加)
+
 [fzf]
 extra_args = ["--bind", "ctrl-a:toggle-preview"]
 ```
@@ -68,6 +72,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - `[limits.max_sessions]`: プロバイダ別の最大数。指定がないプロバイダはグローバル値を使う。
 - `limits.preview_lines` / `[limits.preview_lines]`: `preview` で表示する直近ターン数。
 - `providers.disabled`: 一覧・picker から除外するプロバイダ。`ax agents` では `disabled (config)` と表示される。
+- `providers.aider.roots`: `.aider.chat.history.md` の走査ルート (aider は repo ごとに履歴を持ち中央インデックスがない)。隠しdir・node_modules 等は prune、深さは 8 まで。
 - `fzf.extra_args`: picker / grep の fzf 引数に追加するオプション (fzf 0.44 互換のみ)。
 
 無効な値は stderr に警告を出し、既定値で続行する。設定ファイルの読み込み失敗時も同様。
@@ -96,6 +101,11 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 | agy | `agy --conversation <id>` |
 | opencode | `opencode -s <id>` |
 | devin | `devin -r <id>` |
+| aider | `aider --restore-chat-history` (repo ディレクトリで実行。`<id>` は履歴ファイルのパス) |
+| goose | `goose session --resume --session-id <id>` |
+| omp | `omp --resume <id>` |
+| vibe | `vibe --resume <id>` |
+| hermes | `hermes --resume <id>` |
 
 ## 削除・リネーム
 
@@ -104,7 +114,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - devin → `devin rm --force <id>` (完全削除)
   - codex → `codex archive <id>` (既定はアーカイブ、`codex unarchive` で復元可)
     / `--hard` で `codex delete --force <id>` (完全削除)
-  - claude / agy / opencode は未対応: `not supported` で終了コード非0。
+  - claude / agy / opencode / aider / goose / omp / vibe / hermes は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
@@ -140,6 +150,11 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - devin: `~/.local/share/devin/cli/sessions.db` + `transcripts/*.json` (read-only)
   - transcript が無い/薄い場合は `devin -r <id> --export` による取得を試行
   - ネットワーク失敗・`devin` 不在時は `sessions.db` の `message_nodes` 経由でローカル履歴を再構成し、最終的にタイトルでフォールバック
+- aider: `[providers.aider] roots` 配下の `**/.aider.chat.history.md` (Markdown。1ファイルに複数 `aider chat started` ブロックを含みうる)
+- goose: `~/.local/share/goose/sessions/sessions.db` (read-only) + db に取り込まれていない旧形式 `*.jsonl`
+- omp: `~/.omp/agent/sessions/*/*.jsonl` (256B title slot + `type:"session"` ヘッダ + message エントリ)
+- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` は `~/.vibe/config.toml` を参照)
+- hermes: `~/.hermes/state.db` (`$HERMES_HOME` 優先。列はバージョン差を吸収するため PRAGMA で検出)
 
 ## 制限
 

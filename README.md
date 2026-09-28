@@ -4,11 +4,11 @@
 
 [日本語版 / Japanese version](README.ja.md)
 
-`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` from a single fzf/JSON interface.
+`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) from a single fzf/JSON interface.
 
 ![ax cross-agent session picker demo](images/demo.gif)
 
-Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all five, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
+Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all ten, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
 
@@ -25,7 +25,7 @@ Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
 ```sh
 ax                         # fzf picker (enter=resume ctrl-g=body search)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-ax grep <query>            # cross-agent body search across all 5 -> fzf -> resume
+ax grep <query>            # cross-agent body search across all 10 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # delete session (devin/codex only)
@@ -56,6 +56,9 @@ devin = 20
 [providers]
 disabled = ["agy"]
 
+[providers.aider]
+roots = ["~"]   # dirs scanned for .aider.chat.history.md (cwd is always added)
+
 [fzf]
 extra_args = ["--bind", "ctrl-a:toggle-preview"]
 ```
@@ -64,6 +67,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - `[limits.max_sessions]`: per-provider maximum. Providers not listed use the global value.
 - `limits.preview_lines` / `[limits.preview_lines]`: recent turns shown by `preview`.
 - `providers.disabled`: hide from `list` / picker. `ax agents` shows them as `disabled (config)`.
+- `providers.aider.roots`: scan roots for `.aider.chat.history.md` (aider keeps history per-repo, no central index). Hidden dirs and heavy dirs (node_modules etc.) are pruned; depth is capped at 8.
 - `fzf.extra_args`: additional fzf options for picker / grep (fzf 0.44 compatible only).
 
 Invalid values print a stderr warning and fall back to defaults. A config read failure is handled the same way.
@@ -91,6 +95,11 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
 | agy | `agy --conversation <id>` |
 | opencode | `opencode -s <id>` |
 | devin | `devin -r <id>` |
+| aider | `aider --restore-chat-history` (in the repo dir; `<id>` is the history file path) |
+| goose | `goose session --resume --session-id <id>` |
+| omp | `omp --resume <id>` |
+| vibe | `vibe --resume <id>` |
+| hermes | `hermes --resume <id>` |
 
 ## Delete and rename
 
@@ -98,7 +107,7 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
   - devin → `devin rm --force <id>` (permanent delete)
   - codex → `codex archive <id>` (archive by default, restore with `codex unarchive`)
     / `--hard` → `codex delete --force <id>` (permanent delete)
-  - claude / agy / opencode are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
+  - claude / agy / opencode / aider / goose / omp / vibe / hermes are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
 - `ax rename` does not modify provider stores. It saves an ax-local display-name alias in `~/.local/share/ax/titles.json`. Use `--name ""` to clear. Works for all providers and only affects the `title` column in listings.
 
 ## Using from an agent (Agent Skill)
@@ -131,6 +140,11 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - devin: `~/.local/share/devin/cli/sessions.db` + `transcripts/*.json` (read-only)
   - If the transcript is missing or thin, tries `devin -r <id> --export`
   - On network failure or missing `devin` binary, reconstructs local history from `sessions.db` `message_nodes`, falling back to the session title
+- aider: `**/.aider.chat.history.md` under `[providers.aider] roots` (Markdown; each file may hold multiple `aider chat started` blocks)
+- goose: `~/.local/share/goose/sessions/sessions.db` (read-only) + legacy `*.jsonl` in the same dir not shadowed by the db
+- omp: `~/.omp/agent/sessions/*/*.jsonl` (256-byte title slot + `type:"session"` header + message entries)
+- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` from `~/.vibe/config.toml`)
+- hermes: `~/.hermes/state.db` (`$HERMES_HOME` respected; schema columns probed per version)
 
 ## Limitations
 

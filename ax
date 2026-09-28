@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ax - cross-agent session picker for claude / codex / agy / opencode / devin.
+"""ax - cross-agent session picker for claude / codex / agy / opencode / devin /
+aider / goose / omp / vibe / hermes.
 
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
@@ -17,6 +18,7 @@ Configuration (optional):
 Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
 """
+import calendar
 import json
 import mmap
 import os
@@ -32,7 +34,8 @@ import time
 HOME = os.path.expanduser("~")
 SELF = os.path.abspath(sys.argv[0])
 
-ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin")
+ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
+              "aider", "goose", "omp", "vibe", "hermes")
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
@@ -49,6 +52,11 @@ PREVIEW_DEFAULTS = {
     "agy": 30,
     "opencode": 30,
     "devin": 20,
+    "aider": 30,
+    "goose": 30,
+    "omp": 30,
+    "vibe": 30,
+    "hermes": 30,
 }
 
 
@@ -61,7 +69,7 @@ def _default_config():
             "max_sessions_per_provider": {},
             "preview_lines_per_provider": {},
         },
-        "providers": {"disabled": []},
+        "providers": {"disabled": [], "aider": {"roots": ["~"]}},
         "fzf": {"extra_args": []},
     }
 
@@ -279,6 +287,14 @@ def load_config(path=None):
             cfg["providers"]["disabled"] = valid
         elif disabled is not None:
             print(f"warn: config providers.disabled should be a list: {disabled}", file=sys.stderr)
+        aider = providers.get("aider")
+        if isinstance(aider, dict):
+            roots = aider.get("roots")
+            if isinstance(roots, list) and all(isinstance(r, str) for r in roots):
+                cfg["providers"]["aider"]["roots"] = roots
+            elif roots is not None:
+                print("warn: config providers.aider.roots must be a list of strings",
+                      file=sys.stderr)
     elif providers is not None:
         print("warn: config providers is not a table", file=sys.stderr)
 
@@ -334,7 +350,49 @@ RESUME_CMD = {
     "agy": lambda i: (["agy", "--conversation", i]),
     "opencode": lambda i: (["opencode", "-s", i]),
     "devin": lambda i: (["devin", "-r", i]),
+    "aider": lambda i: (["aider", "--restore-chat-history"]),
+    "goose": lambda i: (["goose", "session", "--resume", "--session-id", i]),
+    "omp": lambda i: (["omp", "--resume", i]),
+    "vibe": lambda i: (["vibe", "--resume", i]),
+    "hermes": lambda i: (["hermes", "--resume", i]),
 }
+
+
+def _epoch_from_ts(v, utc=False):
+    """int/float epoch passthrough (ms normalized); 'YYYY-MM-DD[ T]HH:MM:SS'
+    text -> epoch. utc=True treats naive timestamps as UTC (goose stores UTC),
+    otherwise local time (aider history headers)."""
+    if isinstance(v, (int, float)):
+        return int(v / 1000) if v > 1e11 else int(v)
+    s = re.sub(r"[TZ]", " ", str(v or "")).strip()
+    m = re.match(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})", s)
+    if not m:
+        return 0
+    try:
+        tt = time.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return 0
+    return int(calendar.timegm(tt) if utc else time.mktime(tt))
+
+
+def _text_blocks(content):
+    """Extract joined text from a message content field: str, or a list of
+    typed blocks like [{'type': 'text', 'text': ...}] (omp/vibe/goose)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(b.get("text", "") for b in content
+                         if isinstance(b, dict) and b.get("type") == "text")
+    if isinstance(content, dict):
+        return _text_blocks(content.get("content"))
+    return ""
+
+
+def _table_cols(con, table):
+    try:
+        return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+    except Exception:
+        return set()
 
 
 def reltime(epoch):
@@ -1246,6 +1304,670 @@ def preview_devin(sid, n=None, color=None):
     return f"--- devin {sid} (0 msgs)\n{resume}\n(no local transcript)"
 
 
+# ---------------- aider ----------------
+# aider has no session ids or central store: it appends to
+# <repo>/.aider.chat.history.md. ax rows are history files; resume runs
+# `aider --restore-chat-history` in the repo dir.
+AIDER_HISTORY = ".aider.chat.history.md"
+_AIDER_SKIP_DIRS = {"node_modules", "__pycache__", "venv", "target", "dist",
+                    "build", "go"}
+AIDER_SCAN_MAX_DEPTH = 8
+
+
+def _aider_roots():
+    roots = CONFIG["providers"]["aider"]["roots"]
+    seen = set()
+    out = []
+    for r in list(roots) + [os.getcwd()]:
+        p = os.path.abspath(os.path.expanduser(r))
+        if p not in seen and os.path.isdir(p):
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _aider_scan():
+    """Yield .aider.chat.history.md paths under configured roots. Hidden and
+    heavy dirs are pruned; depth is capped so a HOME root stays cheap."""
+    for root in _aider_roots():
+        root_depth = root.rstrip(os.sep).count(os.sep)
+        for dp, dns, fns in os.walk(root):
+            if dp.rstrip(os.sep).count(os.sep) - root_depth >= AIDER_SCAN_MAX_DEPTH:
+                dns[:] = []
+                continue
+            dns[:] = [d for d in dns
+                      if not d.startswith(".") and d not in _AIDER_SKIP_DIRS]
+            if AIDER_HISTORY in fns:
+                yield os.path.join(dp, AIDER_HISTORY)
+
+
+_AIDER_HEADER_RE = re.compile(r"^# aider chat started at (.+)$")
+
+
+def _aider_turns(path):
+    """Parse a history file into [(role, text)] and block start epochs.
+    `#### ` lines are user input, `> ` lines are tool output (skipped),
+    bare text is assistant output; ``` fences are tracked so markers inside
+    code blocks are not mistaken for roles."""
+    turns, starts = [], []
+    role, buf, in_fence = None, [], False
+
+    def flush():
+        nonlocal role, buf
+        text = "\n".join(buf).strip()
+        if role and text:
+            turns.append((role, text))
+        role, buf = None, []
+
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh.read().splitlines():
+                if line.startswith("```"):
+                    in_fence = not in_fence
+                if not in_fence:
+                    m = _AIDER_HEADER_RE.match(line)
+                    if m:
+                        flush()
+                        starts.append(_epoch_from_ts(m.group(1).strip()))
+                        continue
+                    if line.startswith("#### "):
+                        if role != "user":
+                            flush()
+                            role = "user"
+                        buf.append(line[5:])
+                        continue
+                    if line.startswith("> "):
+                        continue
+                if role is None:
+                    role = "assistant"
+                elif role == "user":
+                    flush()
+                    role = "assistant"
+                buf.append(line)
+        flush()
+    except OSError:
+        pass
+    return turns, starts
+
+
+def list_aider(limit=DEFAULT_LIMIT, no_cache=False):
+    out = []
+    for path in _aider_scan():
+        turns, starts = _aider_turns(path)
+        epoch = starts[-1] if starts else 0
+        if not epoch:
+            try:
+                epoch = int(os.path.getmtime(path))
+            except OSError:
+                continue
+        title = ""
+        for r, t in reversed(turns):
+            if r == "user":
+                title = clean_title(t)
+                break
+        out.append({"agent": "aider", "id": path, "epoch": epoch,
+                    "cwd": os.path.dirname(path),
+                    "title": title or "(untitled)"})
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_aider(sid, n=None, color=None):
+    n = _preview_lines("aider", n)
+    if not os.path.exists(sid):
+        return f"aider session not found: {sid}"
+    turns, starts = _aider_turns(sid)
+    extra = [f"resume: cd {os.path.dirname(sid)} && aider --restore-chat-history"]
+    if starts:
+        extra.append(f"blocks={len(starts)}")
+    return render_preview("aider", sid, turns[-n:], extra=extra,
+                          total=len(turns), color=color)
+
+
+# ---------------- goose ----------------
+def _goose_dir():
+    cands = []
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        cands.append(os.path.join(xdg, "goose", "sessions"))
+    cands += [os.path.join(HOME, ".local", "share", "goose", "sessions"),
+              os.path.join(HOME, ".config", "goose", "sessions")]
+    for d in cands:
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+def _goose_db():
+    d = _goose_dir()
+    if not d:
+        return None
+    p = os.path.join(d, "sessions.db")
+    if not os.path.exists(p):
+        return None
+    try:
+        return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+    except Exception as e:
+        print(f"warn: goose db: {e}", file=sys.stderr)
+        return None
+
+
+def _goose_msg_text(content):
+    try:
+        o = json.loads(content) if isinstance(content, str) else content
+    except Exception:
+        return content if isinstance(content, str) else ""
+    return _text_blocks(o)
+
+
+def _goose_db_sessions(limit):
+    """[(id, epoch, cwd, title)] from sessions.db; schema columns are probed
+    because they accreted across goose releases."""
+    out = []
+    con = _goose_db()
+    if con is None:
+        return out
+    try:
+        cols = _table_cols(con, "sessions")
+        if "id" not in cols:
+            return out
+        sel = ["id"] + [c for c in ("working_dir", "name", "description",
+                                    "created_at", "updated_at") if c in cols]
+        where = " WHERE archived_at IS NULL" if "archived_at" in cols else ""
+        order = " ORDER BY updated_at DESC" if "updated_at" in cols else \
+            (" ORDER BY created_at DESC" if "created_at" in cols else "")
+        q = f"SELECT {', '.join(sel)} FROM sessions{where}{order} LIMIT ?"
+        for row in con.execute(q, (limit,)):
+            r = dict(zip(sel, row))
+            epoch = (_epoch_from_ts(r.get("updated_at"), utc=True)
+                     or _epoch_from_ts(r.get("created_at"), utc=True))
+            title = (r.get("name") or r.get("description") or "").strip()
+            out.append((r["id"], epoch, r.get("working_dir") or "?",
+                        title or "(untitled)"))
+    except Exception as e:
+        print(f"warn: goose list: {e}", file=sys.stderr)
+    finally:
+        con.close()
+    return out
+
+
+def _goose_jsonl_sessions(exclude_ids):
+    """Legacy pre-1.10 *.jsonl files: line 1 is a metadata header, the rest
+    are message objects {role, content:[...]}."""
+    d = _goose_dir()
+    out = []
+    if not d:
+        return out
+    try:
+        names = [f for f in os.listdir(d) if f.endswith(".jsonl")]
+    except OSError:
+        return out
+    for fn in names:
+        sid = fn[:-len(".jsonl")]
+        if sid in exclude_ids:
+            continue
+        p = os.path.join(d, fn)
+        try:
+            with open(p, errors="replace") as fh:
+                head = json.loads(fh.readline() or "{}")
+            epoch = (_epoch_from_ts(head.get("updated_at"), utc=True)
+                     or _epoch_from_ts(head.get("created_at"), utc=True)
+                     or int(os.path.getmtime(p)))
+            title = (head.get("description") or head.get("name") or "").strip()
+            out.append((sid, epoch, head.get("working_dir") or "?",
+                        title or "(untitled)"))
+        except Exception:
+            continue
+    return out
+
+
+def list_goose(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = _goose_db_sessions(limit)
+    ids = {r[0] for r in rows}
+    rows += [r for r in _goose_jsonl_sessions(ids)]
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return [{"agent": "goose", "id": sid, "epoch": epoch, "cwd": cwd,
+             "title": title} for sid, epoch, cwd, title in rows[:limit]]
+
+
+def _goose_db_turns(sid):
+    con = _goose_db()
+    if con is None:
+        return None
+    try:
+        cols = _table_cols(con, "messages")
+        ccol = "content_json" if "content_json" in cols else \
+            ("content" if "content" in cols else None)
+        if "session_id" not in cols or "role" not in cols or not ccol:
+            return []
+        rows = con.execute(
+            f"SELECT role, {ccol} FROM messages WHERE session_id=?"
+            " ORDER BY rowid", (sid,)).fetchall()
+        return [(role, _goose_msg_text(c)) for role, c in rows
+                if role in ("user", "assistant")]
+    except Exception as e:
+        print(f"warn: goose messages: {e}", file=sys.stderr)
+        return []
+    finally:
+        con.close()
+
+
+def _goose_jsonl_turns(sid):
+    d = _goose_dir()
+    if not d:
+        return None
+    p = os.path.join(d, f"{sid}.jsonl")
+    if not os.path.exists(p):
+        return None
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("role") in ("user", "assistant"):
+                    turns.append((o["role"], _text_blocks(o.get("content"))))
+    except OSError:
+        pass
+    return turns
+
+
+def preview_goose(sid, n=None, color=None):
+    n = _preview_lines("goose", n)
+    turns = _goose_db_turns(sid)
+    if not turns:
+        turns = _goose_jsonl_turns(sid)
+    if turns is None:
+        return f"goose session not found: {sid}"
+    resume = f"resume: goose session --resume --session-id {sid}"
+    return render_preview("goose", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+# ---------------- omp (oh-my-pi) ----------------
+# Sessions: ~/.omp/agent/sessions/<encoded-cwd>/<ts>_<sid>.jsonl
+# Current files start with a fixed-width 256-byte type:"title" slot line,
+# then a type:"session" header, then append-only entries.
+def _omp_root():
+    return os.path.join(HOME, ".omp", "agent", "sessions")
+
+
+def _omp_files():
+    root = _omp_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for bucket in os.listdir(root):
+        b = os.path.join(root, bucket)
+        if not os.path.isdir(b):
+            continue
+        try:
+            for fn in os.listdir(b):
+                if fn.endswith(".jsonl"):
+                    out.append(os.path.join(b, fn))
+        except OSError:
+            continue
+    return out
+
+
+def _omp_header(path):
+    """(header dict, slot title). The header may be line 1 (legacy) or line 2
+    (after the fixed-width title slot)."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8192)
+    except OSError:
+        return None, ""
+    slot_title = ""
+    for raw in head.split(b"\n")[:3]:
+        try:
+            o = json.loads(raw.decode("utf-8", "replace").strip() or "{}")
+        except Exception:
+            continue
+        if not isinstance(o, dict):
+            continue
+        if o.get("type") == "title":
+            slot_title = o.get("title") or ""
+        elif o.get("type") == "session":
+            return o, slot_title
+    return None, slot_title
+
+
+def _omp_sid(header, path):
+    sid = (header or {}).get("id")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(path)[:-len(".jsonl")]
+
+
+def _omp_file(sid):
+    for p in _omp_files():
+        if os.path.basename(p)[:-len(".jsonl")] == sid or \
+                os.path.basename(p).endswith("_" + sid + ".jsonl"):
+            return p
+    for p in _omp_files():
+        h, _ = _omp_header(p)
+        if h and h.get("id") == sid:
+            return p
+    return None
+
+
+def _omp_text(o):
+    if o.get("type") != "message":
+        return ""
+    msg = o.get("message") if isinstance(o.get("message"), dict) else {}
+    if msg.get("role") not in ("user", "assistant"):
+        return ""
+    return _text_blocks(msg.get("content"))
+
+
+def _omp_first_user(path, limit_bytes=65536):
+    try:
+        with open(path, "rb") as fh:
+            for line in fh.read(limit_bytes).split(b"\n"):
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("type") == "message":
+                    t = _omp_text(o)
+                    if t and o["message"].get("role") == "user":
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def list_omp(limit=DEFAULT_LIMIT, no_cache=False):
+    out = []
+    for p in _omp_files():
+        h, slot_title = _omp_header(p)
+        sid = _omp_sid(h, p)
+        epoch = _epoch_from_ts((h or {}).get("timestamp"), utc=True)
+        if not epoch:
+            try:
+                epoch = int(os.path.getmtime(p))
+            except OSError:
+                continue
+        title = ((h or {}).get("title") or slot_title or "").strip()
+        if not title:
+            title = clean_title(_omp_first_user(p)) or "(untitled)"
+        out.append({"agent": "omp", "id": sid, "epoch": epoch,
+                    "cwd": (h or {}).get("cwd") or "?", "title": title})
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_omp(sid, n=None, color=None):
+    n = _preview_lines("omp", n)
+    p = _omp_file(sid)
+    if not p:
+        return f"omp session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("type") == "message":
+                    t = _omp_text(o)
+                    if t:
+                        turns.append((o["message"]["role"], t,
+                                      o.get("timestamp")))
+    except OSError:
+        pass
+    resume = f"resume: omp --resume {sid}"
+    return render_preview("omp", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+# ---------------- vibe (mistral) ----------------
+def _vibe_conf():
+    root = os.path.join(HOME, ".vibe")
+    save_dir = os.path.join(root, "logs", "session")
+    prefix = "session"
+    cfg_path = os.path.join(root, "config.toml")
+    try:
+        if os.path.exists(cfg_path):
+            with open(cfg_path, encoding="utf-8") as fh:
+                raw = _parse_toml(fh.read())
+            sl = raw.get("session_logging")
+            if isinstance(sl, dict):
+                if isinstance(sl.get("save_dir"), str) and sl["save_dir"]:
+                    save_dir = os.path.expanduser(sl["save_dir"])
+                if isinstance(sl.get("session_prefix"), str) and sl["session_prefix"]:
+                    prefix = sl["session_prefix"]
+    except Exception:
+        pass
+    return save_dir, prefix
+
+
+def _vibe_dirs():
+    save_dir, prefix = _vibe_conf()
+    out = []
+    if not os.path.isdir(save_dir):
+        return out
+    try:
+        for name in os.listdir(save_dir):
+            d = os.path.join(save_dir, name)
+            if not os.path.isdir(d) or not name.startswith(prefix + "_"):
+                continue
+            if os.path.exists(os.path.join(d, "messages.jsonl")):
+                out.append(d)
+    except OSError:
+        pass
+    return out
+
+
+def _vibe_meta(d):
+    try:
+        with open(os.path.join(d, "meta.json"), errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _vibe_sid(d, meta):
+    sid = meta.get("session_id")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(d)
+
+
+def _vibe_dir(sid):
+    for d in _vibe_dirs():
+        meta = _vibe_meta(d)
+        if _vibe_sid(d, meta) == sid or os.path.basename(d) == sid \
+                or os.path.basename(d).endswith("_" + sid):
+            return d
+    return None
+
+
+def _vibe_text(o):
+    if o.get("role") not in ("user", "assistant"):
+        return ""
+    return _text_blocks(o.get("content"))
+
+
+def _vibe_first_user(d):
+    try:
+        with open(os.path.join(d, "messages.jsonl"), "rb") as fh:
+            for line in fh.read(65536).split(b"\n"):
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("role") == "user":
+                    t = _vibe_text(o)
+                    if t:
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def _vibe_cwd(meta):
+    env = meta.get("environment") if isinstance(meta.get("environment"), dict) else {}
+    return env.get("working_directory") or meta.get("origin_directory") or "?"
+
+
+def list_vibe(limit=DEFAULT_LIMIT, no_cache=False):
+    out = []
+    for d in _vibe_dirs():
+        meta = _vibe_meta(d)
+        try:
+            epoch = int(os.path.getmtime(os.path.join(d, "messages.jsonl")))
+        except OSError:
+            epoch = _epoch_from_ts(meta.get("updated_at"), utc=True)
+        title = (meta.get("title") or "").strip() or \
+            clean_title(_vibe_first_user(d)) or "(untitled)"
+        out.append({"agent": "vibe", "id": _vibe_sid(d, meta), "epoch": epoch,
+                    "cwd": _vibe_cwd(meta), "title": title})
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_vibe(sid, n=None, color=None):
+    n = _preview_lines("vibe", n)
+    d = _vibe_dir(sid)
+    if not d:
+        return f"vibe session not found: {sid}"
+    turns = []
+    try:
+        with open(os.path.join(d, "messages.jsonl"), errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _vibe_text(o)
+                    if t:
+                        turns.append((o["role"], t))
+    except OSError:
+        pass
+    resume = f"resume: vibe --resume {sid}"
+    return render_preview("vibe", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+# ---------------- hermes ----------------
+def _hermes_db():
+    root = os.environ.get("HERMES_HOME") or os.path.join(HOME, ".hermes")
+    p = os.path.join(root, "state.db")
+    if not os.path.exists(p):
+        return None
+    try:
+        return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+    except Exception as e:
+        print(f"warn: hermes db: {e}", file=sys.stderr)
+        return None
+
+
+_HERMES_JSON_PREFIX = "\x00json:"
+
+
+def _hermes_msg_text(content):
+    if isinstance(content, str) and content.startswith(_HERMES_JSON_PREFIX):
+        try:
+            return _text_blocks(json.loads(content[len(_HERMES_JSON_PREFIX):]))
+        except Exception:
+            return content[len(_HERMES_JSON_PREFIX):]
+    if isinstance(content, str):
+        return content
+    return _text_blocks(content)
+
+
+def _hermes_first_user(con, sid):
+    try:
+        row = con.execute(
+            "SELECT content FROM messages WHERE session_id=? AND role='user'"
+            " ORDER BY rowid LIMIT 1", (sid,)).fetchone()
+        if row:
+            return clean_title(_hermes_msg_text(row[0]))
+    except Exception:
+        pass
+    return ""
+
+
+def _hermes_sessions():
+    con = _hermes_db()
+    if con is None:
+        return None, []
+    try:
+        cols = _table_cols(con, "sessions")
+        if "id" not in cols:
+            return con, []
+        sel = ["id"] + [c for c in ("title", "cwd", "source", "started_at",
+                                    "updated_at", "ended_at") if c in cols]
+        order = " ORDER BY started_at DESC" if "started_at" in cols else ""
+        rows = con.execute(
+            f"SELECT {', '.join(sel)} FROM sessions{order}",
+            ).fetchall()
+        return con, [dict(zip(sel, r)) for r in rows]
+    except Exception as e:
+        print(f"warn: hermes list: {e}", file=sys.stderr)
+        return con, []
+
+
+def list_hermes(limit=DEFAULT_LIMIT, no_cache=False):
+    out = []
+    con, rows = _hermes_sessions()
+    if con is None:
+        return out
+    try:
+        for r in rows[:limit]:
+            epoch = _epoch_from_ts(r.get("started_at")) or \
+                _epoch_from_ts(r.get("updated_at"))
+            title = (r.get("title") or "").strip()
+            if not title:
+                title = _hermes_first_user(con, r["id"]) or "(untitled)"
+            out.append({"agent": "hermes", "id": r["id"], "epoch": epoch,
+                        "cwd": r.get("cwd") or "?", "title": title})
+    except Exception as e:
+        print(f"warn: hermes list: {e}", file=sys.stderr)
+    finally:
+        con.close()
+    return out
+
+
+def _hermes_turns(sid):
+    con = _hermes_db()
+    if con is None:
+        return None
+    try:
+        cols = _table_cols(con, "messages")
+        if "session_id" not in cols or "role" not in cols or "content" not in cols:
+            return []
+        active = " AND active=1" if "active" in cols else ""
+        order = " ORDER BY id" if "id" in cols else " ORDER BY rowid"
+        rows = con.execute(
+            f"SELECT role, content FROM messages WHERE session_id=?{active}{order}",
+            (sid,)).fetchall()
+        return [(role, _hermes_msg_text(c)) for role, c in rows
+                if role in ("user", "assistant")]
+    except Exception as e:
+        print(f"warn: hermes messages: {e}", file=sys.stderr)
+        return []
+    finally:
+        con.close()
+
+
+def preview_hermes(sid, n=None, color=None):
+    n = _preview_lines("hermes", n)
+    turns = _hermes_turns(sid)
+    if turns is None:
+        return "hermes: state.db not found"
+    resume = f"resume: hermes --resume {sid}"
+    return render_preview("hermes", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
 # ---------------- store info ----------------
 def store_info_claude():
     root = os.path.join(HOME, ".claude", "projects")
@@ -1343,19 +2065,125 @@ def store_info_devin():
     return {"ok": True, "count": count, "size": size}
 
 
+def store_info_aider():
+    files = list(_aider_scan())
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+def store_info_goose():
+    d = _goose_dir()
+    if not d:
+        return {"ok": False}
+    count, size = 0, 0
+    dbp = os.path.join(d, "sessions.db")
+    if os.path.exists(dbp):
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                size += os.path.getsize(dbp + suffix)
+            except OSError:
+                pass
+        con = _goose_db()
+        if con is not None:
+            try:
+                count += con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+            except Exception:
+                pass
+            finally:
+                con.close()
+    try:
+        for fn in os.listdir(d):
+            if fn.endswith(".jsonl"):
+                count += 1
+                try:
+                    size += os.path.getsize(os.path.join(d, fn))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    if count == 0 and size == 0:
+        return {"ok": False}
+    return {"ok": True, "count": count, "size": size}
+
+
+def store_info_omp():
+    files = _omp_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+def store_info_vibe():
+    dirs = _vibe_dirs()
+    if not dirs:
+        return {"ok": False}
+    size = 0
+    for d in dirs:
+        for fn in os.listdir(d):
+            try:
+                size += os.path.getsize(os.path.join(d, fn))
+            except OSError:
+                pass
+    return {"ok": True, "count": len(dirs), "size": size}
+
+
+def store_info_hermes():
+    con = _hermes_db()
+    if con is None:
+        return {"ok": False}
+    count = "?"
+    try:
+        count = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+    except Exception as e:
+        print(f"warn: hermes: {e}", file=sys.stderr)
+    finally:
+        con.close()
+    root = os.environ.get("HERMES_HOME") or os.path.join(HOME, ".hermes")
+    p = os.path.join(root, "state.db")
+    size = 0
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            size += os.path.getsize(p + suffix)
+        except OSError:
+            pass
+    return {"ok": True, "count": count, "size": size}
+
+
 STORE_INFO = {
     "claude": store_info_claude,
     "codex": store_info_codex,
     "agy": store_info_agy,
     "opencode": store_info_opencode,
     "devin": store_info_devin,
+    "aider": store_info_aider,
+    "goose": store_info_goose,
+    "omp": store_info_omp,
+    "vibe": store_info_vibe,
+    "hermes": store_info_hermes,
 }
 
 
 LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
-           "opencode": list_opencode, "devin": list_devin}
+           "opencode": list_opencode, "devin": list_devin,
+           "aider": list_aider, "goose": list_goose, "omp": list_omp,
+           "vibe": list_vibe, "hermes": list_hermes}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
-              "opencode": preview_opencode, "devin": preview_devin}
+              "opencode": preview_opencode, "devin": preview_devin,
+              "aider": preview_aider, "goose": preview_goose, "omp": preview_omp,
+              "vibe": preview_vibe, "hermes": preview_hermes}
 
 
 # ---------------- grep (body search) ----------------
@@ -1532,8 +2360,125 @@ def grep_devin(sid, pats_b, pat_s, query, max_hits=2):
     return out
 
 
+def grep_aider(sid, pats_b, pat_s, query, max_hits=2):
+    out = []
+    if not os.path.exists(sid) or not _file_might_contain(sid, pats_b):
+        return out
+    turns, _ = _aider_turns(sid)
+    for _, text in turns:
+        if pat_s.search(text):
+            out.append(_snippet(text, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def _goose_text(o):
+    if o.get("role") in ("user", "assistant"):
+        return _text_blocks(o.get("content"))
+    return ""
+
+
+def _like_esc(q):
+    return "%" + re.sub(r"([%_\\])", r"\\\1", q) + "%"
+
+
+def _sql_text_grep(con, table, sid_col, ccol, sid, query, decode, pat_s,
+                   max_hits, extra_where=""):
+    """LIKE-prefilter a text/JSON column, then decode+regex for real hits."""
+    likes = [_like_esc(query)]
+    esc = json.dumps(query, ensure_ascii=True)[1:-1]
+    if esc != query:
+        likes.append(_like_esc(esc))
+    where = " OR ".join(f"{ccol} LIKE ? ESCAPE '\\'" for _ in likes)
+    rows = con.execute(
+        f"SELECT {ccol} FROM {table} WHERE {sid_col}=?{extra_where}"
+        f" AND ({where}) LIMIT ?",
+        (sid, *likes, max_hits * 4)).fetchall()
+    out = []
+    for (c,) in rows:
+        t = decode(c)
+        if t and pat_s.search(t):
+            out.append(_snippet(t, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def grep_goose(sid, pats_b, pat_s, query, max_hits=2):
+    out = []
+    con = _goose_db()
+    if con is not None:
+        try:
+            cols = _table_cols(con, "messages")
+            ccol = "content_json" if "content_json" in cols else \
+                ("content" if "content" in cols else None)
+            if ccol and "session_id" in cols:
+                rc = " AND role IN ('user','assistant')" \
+                    if "role" in cols else ""
+                out = _sql_text_grep(con, "messages", "session_id", ccol, sid,
+                                     query, _goose_msg_text, pat_s,
+                                     max_hits, extra_where=rc)
+        except Exception:
+            pass
+        finally:
+            con.close()
+    d = _goose_dir()
+    if d and len(out) < max_hits:
+        p = os.path.join(d, f"{sid}.jsonl")
+        if os.path.exists(p):
+            out += _grep_jsonl(p, pats_b, pat_s, _goose_text,
+                               max_hits - len(out))
+    return out
+
+
+def grep_omp(sid, pats_b, pat_s, query, max_hits=2):
+    return _grep_jsonl(_omp_file(sid), pats_b, pat_s, _omp_text, max_hits)
+
+
+def grep_vibe(sid, pats_b, pat_s, query, max_hits=2):
+    d = _vibe_dir(sid)
+    p = os.path.join(d, "messages.jsonl") if d else None
+    return _grep_jsonl(p, pats_b, pat_s, _vibe_text, max_hits)
+
+
+def grep_hermes(sid, pats_b, pat_s, query, max_hits=2):
+    """Messages can carry a NUL-prefixed JSON encoding which defeats LIKE,
+    so filtering is done in Python after decoding."""
+    out = []
+    con = _hermes_db()
+    if con is None:
+        return out
+    try:
+        cols = _table_cols(con, "messages")
+        if "content" not in cols or "session_id" not in cols:
+            return out
+        extra = ""
+        if "active" in cols:
+            extra += " AND active=1"
+        if "role" in cols:
+            extra += " AND role IN ('user','assistant')"
+        order = " ORDER BY id" if "id" in cols else " ORDER BY rowid"
+        rows = con.execute(
+            f"SELECT content FROM messages WHERE session_id=?{extra}{order}",
+            (sid,)).fetchall()
+        for (c,) in rows:
+            t = _hermes_msg_text(c)
+            if t and pat_s.search(t):
+                out.append(_snippet(t, pat_s))
+                if len(out) >= max_hits:
+                    break
+    except Exception:
+        pass
+    finally:
+        con.close()
+    return out
+
+
 GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
-            "opencode": grep_opencode, "devin": grep_devin}
+            "opencode": grep_opencode, "devin": grep_devin,
+            "aider": grep_aider, "goose": grep_goose, "omp": grep_omp,
+            "vibe": grep_vibe, "hermes": grep_hermes}
 
 
 def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
@@ -1840,7 +2785,7 @@ def cmd_picker():
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
-           "--header", "claude/codex/agy/opencode/devin横断 | enter=resume ctrl-g=body-search esc=cancel",
+           "--header", f"{'/'.join(AGENTS)} | enter=resume ctrl-g=body-search esc=cancel",
            "--prompt", "ax> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"']

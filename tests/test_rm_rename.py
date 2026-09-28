@@ -43,11 +43,17 @@ class TestRmRename(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_rm_test_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         mapping = [
             ("claude", ".claude"),
             ("codex", ".codex"),
             ("gemini", ".gemini"),
             ("local", ".local"),
+            ("aider", "aiderws"),
+            ("omp", ".omp"),
+            ("vibe", ".vibe"),
+            ("hermes", ".hermes"),
         ]
         for src, dst in mapping:
             s = os.path.join(FIXTURES, src)
@@ -62,6 +68,7 @@ class TestRmRename(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def setUp(self):

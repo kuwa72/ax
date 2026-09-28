@@ -36,8 +36,12 @@ class TestGrep(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_grep_test_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         for src, dst in [("claude", ".claude"), ("codex", ".codex"),
-                         ("gemini", ".gemini"), ("local", ".local")]:
+                         ("gemini", ".gemini"), ("local", ".local"),
+                         ("aider", "aiderws"), ("omp", ".omp"),
+                         ("vibe", ".vibe"), ("hermes", ".hermes")]:
             s = os.path.join(FIXTURES, src)
             d = os.path.join(cls.tmp, dst)
             if os.path.isdir(s):
@@ -50,6 +54,7 @@ class TestGrep(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def _capture_stdout(self, fn, *args, **kwargs):
@@ -69,12 +74,32 @@ class TestGrep(unittest.TestCase):
             ("agy", "start with plan", {"agy-1"}),
             ("opencode", "explanation", {"oc-1"}),
             ("devin", "landing page", {"dev-1"}),
+            ("aider", "lexer", set()),
+            ("goose", "indexer", {"g-1"}),
+            ("omp", "tokenizer", {"ompid1"}),
+            ("vibe", "deploy", {"vb002"}),
+            ("hermes", "gateway", {"h-1"}),
         ]
+        aider_hit = {os.path.join(self.tmp, "aiderws", "proj-one",
+                                  ".aider.chat.history.md")}
         for agent, q, expected in cases:
+            if agent == "aider":
+                expected = aider_hit
             rows = self.mod.grep_sessions(q, [agent], 50)
             ids = {r["id"] for r in rows}
             self.assertTrue(expected <= ids,
                             f"{agent}: {q!r} -> {ids}, want superset of {expected}")
+
+    def test_grep_goose_legacy_jsonl(self):
+        ids = {r["id"] for r in self.mod.grep_sessions("Legacy user", ["goose"], 50)}
+        self.assertIn("20260101_1", ids)
+
+    def test_grep_hermes_skips_inactive(self):
+        self.assertEqual(
+            self.mod.grep_sessions("old inactive message", ["hermes"], 50), [])
+        ids = {r["id"] for r in
+               self.mod.grep_sessions("Worker restarted", ["hermes"], 50)}
+        self.assertIn("h-2", ids)
 
     def test_grep_cross_agent(self):
         rows = self.mod.grep_sessions("Refactor", list(self.mod.AGENTS), 50)
