@@ -1319,6 +1319,8 @@ def _aider_roots():
     seen = set()
     out = []
     for r in list(roots) + [os.getcwd()]:
+        if r == "~" or r.startswith("~/"):
+            r = HOME + r[1:]
         p = os.path.abspath(os.path.expanduser(r))
         if p not in seen and os.path.isdir(p):
             seen.add(p)
