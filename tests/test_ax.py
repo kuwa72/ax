@@ -102,6 +102,7 @@ class TestAx(unittest.TestCase):
             "oc-2",
             "oc-v2-1",
             "oc-v2-parent",
+            "oc-v2-null",
             "dev-1",
             "dev-2",
             "g-1",
@@ -153,7 +154,8 @@ class TestAx(unittest.TestCase):
         by_id = {r["id"] for r in rows}
         # v1 (pre-migration) and v2 (post-migration) sessions both appear;
         # fork/subagent children (parent_id set) are hidden (#36)
-        self.assertEqual(by_id, {"oc-1", "oc-2", "oc-v2-1", "oc-v2-parent"})
+        self.assertEqual(by_id, {"oc-1", "oc-2", "oc-v2-1", "oc-v2-parent",
+                                "oc-v2-null"})
         rows = {r["id"]: r for r in self.mod.list_opencode(400)}
         self.assertEqual(rows["oc-1"]["title"], "open test one")
         self.assertEqual(rows["oc-2"]["title"], "open test two")
@@ -366,7 +368,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 23)
+        self.assertEqual(len(rows), 24)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])
