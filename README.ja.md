@@ -19,7 +19,7 @@
 ax                         # fzf picker (enter=resume ctrl-g=本文検索 ctrl-d=削除)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query> [--agent NAME] [--limit N]   # 本文横断検索 -> fzf -> resume
-ax preview <agent> <id> [--json]
+ax preview <agent> <id> [--json] [--lines N]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex/goose/opencode)
 ax rename <agent> <id> --name "..."   # 表示名の変更 (ax ローカル)
@@ -77,7 +77,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 
 - `limits.max_sessions`: 一覧で読み込む最大セッション数。`--limit` で上書き可。
 - `[limits.max_sessions]`: プロバイダ別の最大数。指定がないプロバイダはグローバル値を使う。
-- `limits.preview_lines` / `[limits.preview_lines]`: `preview` で表示する直近ターン数。
+- `limits.preview_lines` / `[limits.preview_lines]`: `preview` で表示する直近ターン数。`--lines` で上書き可 (優先順位: CLI `--lines` > config > 組み込み既定値)。
 - `providers.disabled`: 一覧・picker から除外するプロバイダ。`ax agents` では `disabled (config)` と表示される。
 - `providers.aider.roots`: `.aider.chat.history.md` の走査ルート (aider は repo ごとに履歴を持ち中央インデックスがない)。隠しdir・node_modules 等は prune、深さは 8 まで。
 - `fzf.extra_args`: picker / grep の fzf 引数に追加するオプション (fzf 0.44 互換のみ)。
@@ -97,7 +97,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - role 色は環境・tty に応じて自動 ON (`AX_PREVIEW_COLOR=1` / `NO_COLOR=1`)
 - 幅は `AX_PREVIEW_WIDTH` で固定可能
 
-`--json` は機械用に `{agent, id, preview}` を返す（ANSI コードなし）。
+`--json` は機械用に `{agent, id, preview}` を返す（ANSI コードなし）。`--lines N`（正整数）で表示ターン数を一時的に上書きでき、`--json` 出力の `preview` 文字列にも反映される。
 
 ## resume 先
 
