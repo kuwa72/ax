@@ -23,7 +23,7 @@ Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
 ## Usage
 
 ```sh
-ax                         # fzf picker (enter=resume ctrl-g=body search)
+ax                         # fzf picker (enter=resume ctrl-g=body search ctrl-d=delete)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query>            # cross-agent body search across all 10 -> fzf -> resume
 ax preview <agent> <id> [--json]
@@ -33,7 +33,7 @@ ax rename <agent> <id> --name "..."   # change display title (ax local)
 ax agents                  # detection status / size / count for each store
 ```
 
-`--grep` searches conversation bodies with case-insensitive ASCII substring matching and appends the hit snippet to the `title` column as `▸ <snippet>`. Inside the picker, press `ctrl-g` to switch to body search; in the search result view, `ctrl-g` starts a new search and `ctrl-a` returns to the full list (uses fzf 0.44-compatible `become`).
+`--grep` searches conversation bodies with case-insensitive ASCII substring matching and appends the hit snippet to the `title` column as `▸ <snippet>`. Inside the picker, press `ctrl-g` to switch to body search; in the search result view, `ctrl-g` starts a new search and `ctrl-a` returns to the full list (uses fzf 0.44-compatible `become`). `ctrl-d` deletes the selected session: `ax rm` runs with its own confirmation prompt and the picker restarts afterwards. Deletion is available for devin / codex / goose / opencode; other providers exit with `not supported`.
 
 Add to PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 

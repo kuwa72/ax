@@ -16,7 +16,7 @@
 ## 使い方
 
 ```sh
-ax                         # fzf picker (enter=resume ctrl-g=本文検索)
+ax                         # fzf picker (enter=resume ctrl-g=本文検索 ctrl-d=削除)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query>            # 10エージェント本文横断検索 -> fzf -> resume
 ax preview <agent> <id> [--json]
@@ -30,6 +30,9 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 ヒット行を `title` 列に `▸ <snippet>` として付記する。picker 内では
 `ctrl-g` で本文検索に切替、検索結果画面では `ctrl-g` で再検索・
 `ctrl-a` で全一覧に戻る (fzf 0.44 互換の `become` 使用)。
+`ctrl-d` で選択中セッションを削除 (`ax rm` が確認プロンプトを出し、
+削除後は picker が再起動)。削除は devin / codex / goose / opencode のみ
+対応で、他プロバイダは `not supported` で終了する。
 
 ## 導入
 
