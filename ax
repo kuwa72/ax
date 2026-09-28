@@ -924,6 +924,26 @@ def _oc_has_v2(con):
         return False
 
 
+def _oc_table_cols(con, table):
+    """Column names of a store table (empty set on any error)."""
+    try:
+        return {r[1] for r in
+                con.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.Error:
+        return set()
+
+
+def _oc_child_ids(con):
+    """IDs of fork/subagent child sessions (session_v2.parent_id set)."""
+    try:
+        rows = con.execute(
+            "SELECT id FROM session_v2 "
+            "WHERE parent_id IS NOT NULL AND parent_id <> ''").fetchall()
+        return {r[0] for r in rows}
+    except sqlite3.Error:
+        return set()
+
+
 def _source_fingerprint(path, suffixes=("", "-wal", "-shm")):
     fp = []
     for suffix in suffixes:
@@ -984,25 +1004,42 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
             # are copied there, so it is a superset). Read it, and union with
             # the legacy table in case a store still carries v1-only rows.
             # The LIMIT applies to the combined result.
+            # Fork/subagent child sessions (session_v2.parent_id set) are
+            # hidden from listings (#36); direct preview by ID still works.
+            child_ids = _oc_child_ids(con)
+            legacy_parent = "parent_id" in _oc_table_cols(con, "session")
             for sid, d, title, tu in con.execute(
                     "SELECT id, directory, title, time_updated FROM session_v2 "
                     "WHERE id NOT IN (SELECT id FROM session) "
+                    "AND (parent_id IS NULL OR parent_id = '') "
                     "ORDER BY time_updated DESC LIMIT ?", (limit,)):
                 rows.append({"agent": "opencode", "id": sid,
                              "epoch": int((tu or 0) // 1000),
                              "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
-            for sid, d, title, tu in con.execute(
-                    "SELECT id, directory, title, time_updated FROM session "
-                    "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+            if legacy_parent:
+                q = ("SELECT id, directory, title, time_updated FROM session "
+                     "WHERE (parent_id IS NULL OR parent_id = '') "
+                     "ORDER BY time_updated DESC LIMIT ?")
+            else:
+                q = ("SELECT id, directory, title, time_updated FROM session "
+                     "ORDER BY time_updated DESC LIMIT ?")
+            for sid, d, title, tu in con.execute(q, (limit,)):
+                if sid in child_ids:
+                    continue
                 rows.append({"agent": "opencode", "id": sid,
                              "epoch": int((tu or 0) // 1000),
                              "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
             rows.sort(key=lambda r: r["epoch"], reverse=True)
             rows = rows[:limit]
         else:
-            for sid, d, title, tu in con.execute(
-                    "SELECT id, directory, title, time_updated FROM session "
-                    "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+            if "parent_id" in _oc_table_cols(con, "session"):
+                q = ("SELECT id, directory, title, time_updated FROM session "
+                     "WHERE (parent_id IS NULL OR parent_id = '') "
+                     "ORDER BY time_updated DESC LIMIT ?")
+            else:
+                q = ("SELECT id, directory, title, time_updated FROM session "
+                     "ORDER BY time_updated DESC LIMIT ?")
+            for sid, d, title, tu in con.execute(q, (limit,)):
                 rows.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
                              "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
     finally:

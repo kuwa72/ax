@@ -224,7 +224,8 @@ def generate_opencode():
         os.remove(dbp)
     con = sqlite3.connect(dbp)
     con.execute(
-        "CREATE TABLE session (id TEXT, directory TEXT, title TEXT, time_updated INTEGER)"
+        "CREATE TABLE session (id TEXT, directory TEXT, title TEXT, "
+        "time_updated INTEGER, parent_id TEXT)"
     )
     # mirror the real schema: part.message_id -> message.id, role in message.data
     con.execute(
@@ -236,12 +237,18 @@ def generate_opencode():
         "session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)"
     )
     con.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?)",
-        ("oc-1", "/home/alice/opencode", "open test one", 1700000200000),
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("oc-1", "/home/alice/opencode", "open test one", 1700000200000, None),
     )
     con.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?)",
-        ("oc-2", "/home/alice/opencode2", "open test two", 1700000300000),
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("oc-2", "/home/alice/opencode2", "open test two", 1700000300000, None),
+    )
+    # legacy (v1-only, absent from session_v2) child row: hidden from listings
+    con.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("oc-legacy-child", "/home/alice/opencode", "legacy child",
+         1700000350000, "oc-1"),
     )
     # opencode v2.0.x schema (kv migration.v1-v2 = completed): sessions live
     # in session_v2 and messages in session_message (content embedded in
@@ -275,6 +282,19 @@ def generate_opencode():
         ("oc-v2-1", "/home/alice/opencode3", "v2 session one",
          1700000400000, 1700000400000),
     )
+    # top-level parent + fork/subagent child (child hidden from listings)
+    con.execute(
+        "INSERT INTO session_v2 (id, parent_id, directory, title, "
+        "time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)",
+        ("oc-v2-parent", None, "/home/alice/opencode4", "v2 parent",
+         1700000500000, 1700000500000),
+    )
+    con.execute(
+        "INSERT INTO session_v2 (id, parent_id, directory, title, "
+        "time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)",
+        ("oc-v2-child", "oc-v2-parent", "/home/alice/opencode4", "v2 child",
+         1700000600000, 1700000600000),
+    )
     con.execute(
         "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
         ("ocv2m-1", "oc-v2-1", "user", 4, 1700000400000, 1700000400000,
@@ -287,6 +307,14 @@ def generate_opencode():
          json.dumps({"time": {"created": 1700000400100},
                      "content": [{"type": "text",
                                   "text": "v2 assistant answer"}]})),
+    )
+    # child-only marker: greppable via preview, not via list/grep
+    con.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ocv2m-child-1", "oc-v2-child", "user", 4, 1700000600000,
+         1700000600000,
+         json.dumps({"time": {"created": 1700000600000},
+                     "text": "child-only-marker-xyz question"})),
     )
     msgs = [
         ("ocm-1", "oc-1", "user", 1700000200000),
