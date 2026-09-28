@@ -295,6 +295,12 @@ def generate_opencode():
         ("oc-v2-child", "oc-v2-parent", "/home/alice/opencode4", "v2 child",
          1700000600000, 1700000600000),
     )
+    # issue #40: column-missing rows must not crash listings
+    con.execute(
+        "INSERT INTO session_v2 (id, parent_id, directory, title, "
+        "time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)",
+        ("oc-v2-null", None, None, None, None, None),
+    )
     con.execute(
         "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
         ("ocv2m-1", "oc-v2-1", "user", 4, 1700000400000, 1700000400000,
@@ -315,6 +321,14 @@ def generate_opencode():
          1700000600000,
          json.dumps({"time": {"created": 1700000600000},
                      "text": "child-only-marker-xyz question"})),
+    )
+    # issue #40 companion message for the NULL-column row
+    con.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ocv2m-null-1", "oc-v2-null", "user", 4, 1700000700000,
+         1700000700000,
+         json.dumps({"time": {"created": 1700000700000},
+                     "text": "null-row-marker-xyz question"})),
     )
     msgs = [
         ("ocm-1", "oc-1", "user", 1700000200000),
