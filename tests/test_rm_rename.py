@@ -150,7 +150,10 @@ class TestRmRename(unittest.TestCase):
     def test_rm_unsupported_provider_exits_nonzero(self):
         for agent, sid in (("claude", "sess-c1a2b3"),
                            ("agy", "agy-1"),
-                           ("opencode", "oc-1")):
+                           ("aider", "whatever"),
+                           ("omp", "ompid1"),
+                           ("vibe", "vb001"),
+                           ("hermes", "h-1")):
             with mock.patch("subprocess.run") as mrun, \
                     mock.patch("shutil.which", return_value="/bin/true"):
                 rc, _, err = self._capture(
@@ -189,6 +192,119 @@ class TestRmRename(unittest.TestCase):
             rc, _, _ = self._capture(
                 self.mod.cmd_rm, ["devin", "dev-1", "--yes"])
         self.assertEqual(rc, 3)
+
+    # ---------- ax rm: goose / opencode ----------
+    def test_rm_goose_invokes_tty_runner_with_session_remove(self):
+        with mock.patch.object(self.mod, "_run_tty",
+                               return_value=(0, "")) as mtty, \
+                mock.patch("shutil.which", return_value="/bin/true"):
+            rc, _, _ = self._capture(
+                self.mod.cmd_rm, ["goose", "g-1", "--yes"])
+        self.assertEqual(rc, 0)
+        mtty.assert_called_once()
+        self.assertEqual(mtty.call_args[0][0],
+                         ["goose", "session", "remove", "--session-id", "g-1"])
+
+    def test_rm_goose_answered_only_after_ax_confirm(self):
+        # without --yes, 'y' at ax prompt -> the tty runner still runs
+        with mock.patch.object(self.mod, "_run_tty",
+                               return_value=(0, "")) as mtty, \
+                mock.patch("shutil.which", return_value="/bin/true"), \
+                mock.patch("builtins.input", return_value="y"):
+            rc, _, _ = self._capture(self.mod.cmd_rm, ["goose", "g-1"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(mtty.called)
+
+    def test_rm_goose_without_confirm_never_runs(self):
+        with mock.patch.object(self.mod, "_run_tty") as mtty, \
+                mock.patch("shutil.which", return_value="/bin/true"), \
+                mock.patch("builtins.input", return_value="n"):
+            rc, _, _ = self._capture(self.mod.cmd_rm, ["goose", "g-1"])
+        self.assertNotEqual(rc, 0)
+        self.assertFalse(mtty.called)
+
+    def test_rm_goose_eof_aborts(self):
+        with mock.patch.object(self.mod, "_run_tty") as mtty, \
+                mock.patch("shutil.which", return_value="/bin/true"), \
+                mock.patch("builtins.input", side_effect=EOFError):
+            rc, _, _ = self._capture(self.mod.cmd_rm, ["goose", "g-1"])
+        self.assertNotEqual(rc, 0)
+        self.assertFalse(mtty.called)
+
+    def test_rm_goose_tty_failure_propagates(self):
+        with mock.patch.object(self.mod, "_run_tty",
+                               return_value=(4, "boom")), \
+                mock.patch("shutil.which", return_value="/bin/true"):
+            rc, _, err = self._capture(
+                self.mod.cmd_rm, ["goose", "g-1", "--yes"])
+        self.assertEqual(rc, 4)
+        self.assertIn("exited 4", err)
+
+    def test_rm_opencode_runs_session_delete(self):
+        with mock.patch("subprocess.run", return_value=self._run_ok()) as mrun, \
+                mock.patch("shutil.which", return_value="/bin/true"):
+            rc, _, _ = self._capture(
+                self.mod.cmd_rm, ["opencode", "oc-1", "--yes"])
+        self.assertEqual(rc, 0)
+        argv = mrun.call_args[0][0]
+        self.assertEqual(argv, ["opencode", "session", "delete", "oc-1"])
+
+    def test_rm_opencode_without_confirm_never_runs(self):
+        with mock.patch("subprocess.run") as mrun, \
+                mock.patch("shutil.which", return_value="/bin/true"), \
+                mock.patch("builtins.input", return_value="n"):
+            rc, _, _ = self._capture(self.mod.cmd_rm, ["opencode", "oc-1"])
+        self.assertNotEqual(rc, 0)
+        self.assertFalse(mrun.called)
+
+    def test_rm_goose_and_opencode_missing_binary(self):
+        for agent, sid in (("goose", "g-1"), ("opencode", "oc-1")):
+            with mock.patch("subprocess.run") as mrun, \
+                    mock.patch.object(self.mod, "_run_tty") as mtty, \
+                    mock.patch("shutil.which", return_value=None):
+                rc, _, err = self._capture(
+                    self.mod.cmd_rm, [agent, sid, "--yes"])
+            self.assertNotEqual(rc, 0, agent)
+            self.assertFalse(mrun.called, agent)
+            self.assertFalse(mtty.called, agent)
+
+    def test_rm_opencode_cli_failure_propagates(self):
+        m = mock.Mock()
+        m.returncode = 5
+        with mock.patch("subprocess.run", return_value=m), \
+                mock.patch("shutil.which", return_value="/bin/true"):
+            rc, _, _ = self._capture(
+                self.mod.cmd_rm, ["opencode", "oc-1", "--yes"])
+        self.assertEqual(rc, 5)
+
+    # ---------- _run_tty (pty helper used for goose) ----------
+    def test_run_tty_answers_prompt_and_returns_output(self):
+        prog = ["python3", "-c",
+                "import sys\n"
+                "print('ready', flush=True)\n"
+                "line = sys.stdin.readline().strip()\n"
+                "print('GOT', line, flush=True)\n"
+                "sys.exit(0 if line == 'y' else 3)"]
+        rc, out = self.mod._run_tty(prog, answer="y", expect=r"ready",
+                                    timeout=15)
+        self.assertEqual(rc, 0)
+        self.assertIn("GOT y", out)
+
+    def test_run_tty_wrong_answer_propagates_exit_code(self):
+        prog = ["python3", "-c",
+                "import sys\n"
+                "print('ready', flush=True)\n"
+                "line = sys.stdin.readline().strip()\n"
+                "sys.exit(0 if line == 'y' else 3)"]
+        rc, _ = self.mod._run_tty(prog, answer="n", expect=r"ready",
+                                  timeout=15)
+        self.assertEqual(rc, 3)
+
+    def test_run_tty_timeout_kills_and_reports_124(self):
+        prog = ["python3", "-c", "import time; time.sleep(5)"]
+        rc, _ = self.mod._run_tty(prog, answer="y", expect=r"never-matches",
+                                  timeout=1)
+        self.assertEqual(rc, 124)
 
     def test_rm_usage_error(self):
         rc, _, _ = self._capture(self.mod.cmd_rm, ["devin"])

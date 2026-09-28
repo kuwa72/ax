@@ -243,6 +243,51 @@ def generate_opencode():
         "INSERT INTO session VALUES (?, ?, ?, ?)",
         ("oc-2", "/home/alice/opencode2", "open test two", 1700000300000),
     )
+    # opencode v2.0.x schema (kv migration.v1-v2 = completed): sessions live
+    # in session_v2 and messages in session_message (content embedded in
+    # data). part/message stay for pre-migration sessions only.
+    con.execute("CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT)")
+    con.execute(
+        "INSERT INTO kv VALUES ('migration.v1-v2', '{\"phase\":\"completed\"}')"
+    )
+    con.execute(
+        "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT, "
+        "workspace_id TEXT, parent_id TEXT, fork_session_id TEXT, "
+        "fork_boundary INTEGER, slug TEXT, directory TEXT, path TEXT, "
+        "title TEXT, version TEXT, share_url TEXT, summary_additions REAL, "
+        "summary_deletions REAL, summary_files INTEGER, summary_diffs REAL, "
+        "metadata TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, "
+        "tokens_reasoning INTEGER, tokens_cache_read INTEGER, "
+        "tokens_cache_write INTEGER, revert TEXT, permission TEXT, agent TEXT, "
+        "model TEXT, time_created INTEGER, time_updated INTEGER, "
+        "time_compacting INTEGER, time_archived INTEGER, time_suspended INTEGER, "
+        "resume_attempts INTEGER, time_idle INTEGER, time_viewed INTEGER, "
+        "idle_outcome TEXT)"
+    )
+    con.execute(
+        "CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, "
+        "type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, "
+        "data TEXT)"
+    )
+    con.execute(
+        "INSERT INTO session_v2 (id, directory, title, time_created, "
+        "time_updated) VALUES (?, ?, ?, ?, ?)",
+        ("oc-v2-1", "/home/alice/opencode3", "v2 session one",
+         1700000400000, 1700000400000),
+    )
+    con.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ocv2m-1", "oc-v2-1", "user", 4, 1700000400000, 1700000400000,
+         json.dumps({"time": {"created": 1700000400000},
+                     "text": "v2 user question"})),
+    )
+    con.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ocv2m-2", "oc-v2-1", "assistant", 5, 1700000400100, 1700000400100,
+         json.dumps({"time": {"created": 1700000400100},
+                     "content": [{"type": "text",
+                                  "text": "v2 assistant answer"}]})),
+    )
     msgs = [
         ("ocm-1", "oc-1", "user", 1700000200000),
         ("ocm-2", "oc-1", "assistant", 1700000200100),

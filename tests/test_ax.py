@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
@@ -82,6 +83,11 @@ class TestAx(unittest.TestCase):
             sys.stdout = old
         return result, buf.getvalue()
 
+    def _run_ok(self):
+        m = mock.Mock()
+        m.returncode = 0
+        return m
+
     def test_collect_returns_sessions_for_all_providers(self):
         rows = self.mod.collect(list(self.mod.AGENTS), 400)
         ids = {r["id"] for r in rows}
@@ -94,6 +100,7 @@ class TestAx(unittest.TestCase):
             "agy-2",
             "oc-1",
             "oc-2",
+            "oc-v2-1",
             "dev-1",
             "dev-2",
             "g-1",
@@ -142,10 +149,48 @@ class TestAx(unittest.TestCase):
 
     def test_list_opencode(self):
         rows = self.mod.list_opencode(400)
-        by_id = {r["id"]: r for r in rows}
-        self.assertEqual(set(by_id), {"oc-1", "oc-2"})
-        self.assertEqual(by_id["oc-1"]["title"], "open test one")
-        self.assertEqual(by_id["oc-2"]["title"], "open test two")
+        by_id = {r["id"] for r in rows}
+        # v1 (pre-migration) and v2 (post-migration) sessions both appear
+        self.assertEqual(by_id, {"oc-1", "oc-2", "oc-v2-1"})
+        rows = {r["id"]: r for r in self.mod.list_opencode(400)}
+        self.assertEqual(rows["oc-1"]["title"], "open test one")
+        self.assertEqual(rows["oc-2"]["title"], "open test two")
+        self.assertEqual(rows["oc-v2-1"]["title"], "v2 session one")
+        self.assertEqual(rows["oc-v2-1"]["cwd"], "/home/alice/opencode3")
+
+    def test_preview_opencode_v2_session(self):
+        text = self.mod.preview_opencode("oc-v2-1", 10)
+        self.assertIn("--- opencode oc-v2-1", text)
+        self.assertIn("[user]", text)
+        self.assertIn("v2 user question", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("v2 assistant answer", text)
+
+    def test_grep_opencode_v2_session(self):
+        rows = self.mod.grep_sessions("v2 assistant", ["opencode"], 50)
+        ids = {r["id"] for r in rows}
+        self.assertIn("oc-v2-1", ids)
+
+    def _capture(self, fn, *args, **kwargs):
+        old_out, old_err = sys.stdout, sys.stderr
+        out, err = io.StringIO(), io.StringIO()
+        sys.stdout, sys.stderr = out, err
+        try:
+            rc = fn(*args, **kwargs)
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_rm_opencode_v2_session_accepted(self):
+        # opencode rm goes through subprocess.run, not the tty runner;
+        # existence check must also accept v2 sessions.
+        with mock.patch("subprocess.run", return_value=self._run_ok()) as mrun, \
+                mock.patch("shutil.which", return_value="/bin/true"):
+            rc, _, _ = self._capture(
+                self.mod.cmd_rm, ["opencode", "oc-v2-1", "--yes"])
+        self.assertEqual(rc, 0)
+        argv = mrun.call_args[0][0]
+        self.assertEqual(argv, ["opencode", "session", "delete", "oc-v2-1"])
 
     def test_opencode_cache_creates_and_reuses(self):
         rows = self.mod.list_opencode(300)
@@ -319,7 +364,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 21)
+        self.assertEqual(len(rows), 22)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])

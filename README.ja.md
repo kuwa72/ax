@@ -21,7 +21,7 @@ ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query>            # 10エージェント本文横断検索 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
-ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex のみ)
+ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex/goose/opencode)
 ax rename <agent> <id> --name "..."   # 表示名の変更 (ax ローカル)
 ax agents                  # 各ストアの検出状態・サイズ・件数
 ```
@@ -114,7 +114,10 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - devin → `devin rm --force <id>` (完全削除)
   - codex → `codex archive <id>` (既定はアーカイブ、`codex unarchive` で復元可)
     / `--hard` で `codex delete --force <id>` (完全削除)
-  - claude / agy / opencode / aider / goose / omp / vibe / hermes は未対応: `not supported` で終了コード非0。
+  - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
+    ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
+  - opencode → `opencode session delete <id>` (子セッションも削除)
+  - claude / agy / aider / omp / vibe / hermes は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。

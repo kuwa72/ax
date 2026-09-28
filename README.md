@@ -28,7 +28,7 @@ ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
 ax grep <query>            # cross-agent body search across all 10 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
-ax rm <agent> <id> [--yes] [--hard]   # delete session (devin/codex only)
+ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
 ax rename <agent> <id> --name "..."   # change display title (ax local)
 ax agents                  # detection status / size / count for each store
 ```
@@ -107,7 +107,10 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
   - devin → `devin rm --force <id>` (permanent delete)
   - codex → `codex archive <id>` (archive by default, restore with `codex unarchive`)
     / `--hard` → `codex delete --force <id>` (permanent delete)
-  - claude / agy / opencode / aider / goose / omp / vibe / hermes are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
+  - goose → `goose session remove --session-id <id>` (run through a PTY; ax answers
+    goose's confirm dialog only after ax's own confirmation passed)
+  - opencode → `opencode session delete <id>` (also removes child sessions)
+  - claude / agy / aider / omp / vibe / hermes are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
 - `ax rename` does not modify provider stores. It saves an ax-local display-name alias in `~/.local/share/ax/titles.json`. Use `--name ""` to clear. Works for all providers and only affects the `title` column in listings.
 
 ## Using from an agent (Agent Skill)
