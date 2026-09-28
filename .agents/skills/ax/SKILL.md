@@ -77,6 +77,9 @@ ax list --json --limit 10
 # 本文に "migration" を含むセッションを横断検索
 ax list --json --grep migration
 
+# fzf で直接本文検索 (--agent で絞り込み、--limit で収集上限上書き・既定400)
+ax grep migration --agent claude --limit 10
+
 # claude の特定セッション本文をプレビュー
 ax preview --json claude sess-c1a2b3
 

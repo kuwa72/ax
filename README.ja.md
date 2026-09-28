@@ -18,7 +18,7 @@
 ```sh
 ax                         # fzf picker (enter=resume ctrl-g=本文検索 ctrl-d=削除)
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-ax grep <query>            # 10エージェント本文横断検索 -> fzf -> resume
+ax grep <query> [--agent NAME] [--limit N]   # 本文横断検索 -> fzf -> resume
 ax preview <agent> <id> [--json]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex/goose/opencode)
@@ -27,7 +27,11 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 ```
 
 `--grep` は会話本文のみを部分一致 (ASCII 大小文字無視) で検索し、
-ヒット行を `title` 列に `▸ <snippet>` として付記する。picker 内では
+ヒット行を `title` 列に `▸ <snippet>` として付記する。
+`ax grep <query> [--agent NAME] [--limit N]` で同じ検索を直接 fzf で開ける:
+`--agent` は1プロバイダへの絞り込み (未知名は `list` 同様に空結果)、
+`--limit` は収集上限の上書き (既定 400)、query になるのは位置引数のみ
+(例: `ax grep "foo bar" --agent codex` は `foo bar` を検索)。picker 内では
 `ctrl-g` で本文検索に切替、検索結果画面では `ctrl-g` で再検索・
 `ctrl-a` で全一覧に戻る (fzf 0.44 互換の `become` 使用)。
 `ctrl-d` で選択中セッションを削除 (`ax rm` が確認プロンプトを出し、
