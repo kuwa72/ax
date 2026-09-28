@@ -2741,11 +2741,13 @@ def cmd_grep(args):
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
-           "--header", f"grep: {q} | enter=resume ctrl-g=new search ctrl-a=all esc=cancel",
+           "--header", f"grep: {q} | enter=resume ctrl-g=new search ctrl-a=all "
+                       f"{_GREP_HEADER_SUFFIX} esc=cancel",
            "--prompt", "grep> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"',
-           "--bind", f'ctrl-a:become:exec "{SELF}"']
+           "--bind", f'ctrl-a:become:exec "{SELF}"',
+           *_picker_delete_bind(AGENTS)]
     fzf.extend(CONFIG["fzf"]["extra_args"])
     env = os.environ.copy()
     env["AX_PREVIEW_COLOR"] = "1"
@@ -2945,6 +2947,24 @@ def cmd_rename(args):
     return 0
 
 
+# fzf 0.44-compatible ctrl-d binding: re-exec ax rm on the selected row.
+# No --yes — ax's own confirm prompt still runs (see cmd_rm).
+_PICKER_HEADER_SUFFIX = "ctrl-d=delete"
+_GREP_HEADER_SUFFIX = "ctrl-d=delete"
+
+
+def _picker_delete_bind(rm_agents):
+    """Build the fzf `ctrl-d:become` argv piece that re-execs ax rm.
+
+    fzf replaces {1} {2} with the selected row's agent and id columns.
+    After ax rm returns, the picker restarts so the list reflects the
+    deletion.
+    """
+    return ["--bind",
+            f'ctrl-d:become:exec "{SELF}" rm {{1}} {{2}}; '
+            f'exec "{SELF}"']
+
+
 def cmd_picker():
     if not shutil.which("fzf"):
         print("ax: fzf not found in PATH", file=sys.stderr)
@@ -2960,10 +2980,12 @@ def cmd_picker():
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
-           "--header", f"{'/'.join(AGENTS)} | enter=resume ctrl-g=body-search esc=cancel",
+           "--header", f"{'/'.join(AGENTS)} | enter=resume ctrl-g=body-search "
+                       f"{_PICKER_HEADER_SUFFIX} esc=cancel",
            "--prompt", "ax> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
-                     f'read q < /dev/tty; exec "{SELF}" grep "$q"']
+                     f'read q < /dev/tty; exec "{SELF}" grep "$q"',
+           *_picker_delete_bind(AGENTS)]
     fzf.extend(CONFIG["fzf"]["extra_args"])
     env = os.environ.copy()
     env["AX_PREVIEW_COLOR"] = "1"

@@ -310,7 +310,33 @@ class TestRmRename(unittest.TestCase):
         rc, _, _ = self._capture(self.mod.cmd_rm, ["devin"])
         self.assertNotEqual(rc, 0)
 
-    # ---------- ax rename ----------
+    # ---------- ax picker: ctrl-d delete binding ----------
+    def test_picker_delete_binding_targets_rm(self):
+        bind = self.mod._picker_delete_bind(["claude", "codex", "goose"])
+        argv = bind[-1]  # (--bind, 'ctrl-d:become:...')
+        # fzf 0.44-compatible `become` re-exec that runs ax rm on the
+        # selected row (no --yes: ax's own confirm prompt stays in place)
+        self.assertIn("ctrl-d:become:", argv)
+        self.assertIn(f'"{self.mod.SELF}" rm', argv)
+
+    def test_picker_delete_bind_supports_only_rm_providers(self):
+        # the binding itself is provider-agnostic: ax rm reports which
+        # providers support deletion, picker just forwards agent+id.
+        bind = self.mod._picker_delete_bind(["devin", "codex", "goose",
+                                             "opencode", "claude"])
+        self.assertIn("ctrl-d:become:", bind[-1])
+
+    def test_picker_and_grep_use_delete_binding(self):
+        # both picker and grep views expose ctrl-d
+        self.assertIn("ctrl-d", self.mod._PICKER_HEADER_SUFFIX)
+        self.assertIn("ctrl-d", self.mod._GREP_HEADER_SUFFIX)
+
+    def test_picker_delete_uses_ax_rm_without_yes(self):
+        argv = self.mod._picker_delete_bind(["goose"])
+        # must NOT pass --yes: the confirm prompt must still run
+        self.assertNotIn("--yes", argv)
+
+
     def test_rename_sets_display_title(self):
         rc, _, _ = self._capture(
             self.mod.cmd_rename,
