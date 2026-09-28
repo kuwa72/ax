@@ -90,3 +90,5 @@ ax resume claude sess-c1a2b3
 - 標準ライブラリのみ
 - SQLite は read-only URI
 - 1 プロバイダ異常時も他は継続し、stderr に警告を出す
+- 削除 (`ax rm`) は devin / codex / goose / opencode のみ対応。goose は PTY 経由
+  (ax の確認通過後に goose 側ダイアログへ自動応答)。ユーザー承認なしに実行しない。

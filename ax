@@ -8,7 +8,7 @@ Usage:
     ax grep <query>         body-search all agents -> fzf -> resume
     ax preview <agent> <id> [--json]
     ax resume <agent> <id>
-    ax rm <agent> <id> [--yes] [--hard]   delete a session (devin/codex only)
+    ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
     ax rename <agent> <id> --name "..."   set an ax-local display title
     ax agents               show provider status, store size and count
 
@@ -913,6 +913,17 @@ def _oc_db():
     return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
 
 
+def _oc_has_v2(con):
+    """True if the store has migrated to the v2 schema (session_v2 table)."""
+    try:
+        row = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='session_v2'").fetchone()
+        return row is not None
+    except sqlite3.Error:
+        return False
+
+
 def _source_fingerprint(path, suffixes=("", "-wal", "-shm")):
     fp = []
     for suffix in suffixes:
@@ -968,11 +979,32 @@ def list_opencode(limit=DEFAULT_LIMIT, no_cache=False):
         return []
     rows = []
     try:
-        for sid, d, title, tu in con.execute(
-                "SELECT id, directory, title, time_updated FROM session "
-                "ORDER BY time_updated DESC LIMIT ?", (limit,)):
-            rows.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
-                        "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+        if _oc_has_v2(con):
+            # v2.0.x schema: session_v2 holds every session (migrated v1 rows
+            # are copied there, so it is a superset). Read it, and union with
+            # the legacy table in case a store still carries v1-only rows.
+            # The LIMIT applies to the combined result.
+            for sid, d, title, tu in con.execute(
+                    "SELECT id, directory, title, time_updated FROM session_v2 "
+                    "WHERE id NOT IN (SELECT id FROM session) "
+                    "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+                rows.append({"agent": "opencode", "id": sid,
+                             "epoch": int((tu or 0) // 1000),
+                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+            for sid, d, title, tu in con.execute(
+                    "SELECT id, directory, title, time_updated FROM session "
+                    "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+                rows.append({"agent": "opencode", "id": sid,
+                             "epoch": int((tu or 0) // 1000),
+                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
+            rows.sort(key=lambda r: r["epoch"], reverse=True)
+            rows = rows[:limit]
+        else:
+            for sid, d, title, tu in con.execute(
+                    "SELECT id, directory, title, time_updated FROM session "
+                    "ORDER BY time_updated DESC LIMIT ?", (limit,)):
+                rows.append({"agent": "opencode", "id": sid, "epoch": int((tu or 0) // 1000),
+                             "cwd": d or "?", "title": (title or "").strip() or "(untitled)"})
     finally:
         con.close()
     _save_list_cache("opencode", limit, fingerprint, rows)
@@ -983,21 +1015,57 @@ def preview_opencode(sid, n=None, color=None):
     n = _preview_lines("opencode", n)
     try:
         con = _oc_db()
-        try:
+        if con is None:
+            return f"opencode session not found: {sid}"
+        use_v2 = _oc_has_v2(con)
+        rows = []
+        if use_v2:
             rows = con.execute(
-                "SELECT p.data, p.time_created, m.data FROM part p "
-                "LEFT JOIN message m ON m.id = p.message_id "
-                "WHERE p.session_id=? ORDER BY p.time_created DESC LIMIT ?",
+                "SELECT type, data, time_created FROM session_message "
+                "WHERE session_id=? AND type IN ('user','assistant') "
+                "ORDER BY time_created DESC LIMIT ?",
                 (sid, n)).fetchall()
-        except sqlite3.Error:
-            # older/simplified stores without a message table
-            rows = [(d, None, None) for (d,) in con.execute(
-                "SELECT data FROM part WHERE session_id=? "
-                "ORDER BY time_created DESC LIMIT ?", (sid, n)).fetchall()]
+        if not rows:
+            try:
+                rows = con.execute(
+                    "SELECT p.data, p.time_created, m.data FROM part p "
+                    "LEFT JOIN message m ON m.id = p.message_id "
+                    "WHERE p.session_id=? ORDER BY p.time_created DESC LIMIT ?",
+                    (sid, n)).fetchall()
+            except sqlite3.Error:
+                # older/simplified stores without a message table
+                rows = [(d, None, None) for (d,) in con.execute(
+                    "SELECT data FROM part WHERE session_id=? "
+                    "ORDER BY time_created DESC LIMIT ?", (sid, n)).fetchall()]
+            use_v2 = False
         con.close()
     except Exception as e:
         return f"opencode read error: {e}"
     turns = []
+    if use_v2:
+        for typ, d, ts in reversed(rows):
+            try:
+                o = json.loads(d) if isinstance(d, str) else d
+            except Exception:
+                continue
+            if not isinstance(o, dict):
+                continue
+            role = "user" if typ == "user" else "assistant"
+            if typ == "user":
+                txt = body_text(o.get("text", ""))
+            else:
+                chunks = []
+                for c in (o.get("content") or []):
+                    if isinstance(c, dict) and c.get("type") == "text":
+                        t = body_text(c.get("text", ""))
+                        if t:
+                            chunks.append(t)
+                txt = "\n".join(chunks)
+            if not txt:
+                continue
+            turns.append((_role_label(role), txt, ts))
+        return render_preview("opencode", sid, turns, total=len(turns),
+                              color=color)
     for d, ts, md in reversed(rows):
         try:
             o = json.loads(d) if isinstance(d, str) else d
@@ -2319,9 +2387,17 @@ def grep_opencode(sid, pats_b, pat_s, query, max_hits=2):
         if esc != query:
             likes.append(_like(esc))
         where = " OR ".join("data LIKE ? ESCAPE '\\'" for _ in likes)
-        rows = con.execute(
-            f"SELECT data FROM part WHERE session_id=? AND ({where}) LIMIT ?",
-            (sid, *likes, max_hits * 8)).fetchall()
+        has_v2 = _oc_has_v2(con)
+        rows = []
+        if has_v2:
+            rows = con.execute(
+                f"SELECT data FROM session_message WHERE session_id=? "
+                f"AND type IN ('user','assistant') AND ({where}) LIMIT ?",
+                (sid, *likes, max_hits * 8)).fetchall()
+        if not rows:
+            rows = con.execute(
+                f"SELECT data FROM part WHERE session_id=? AND ({where}) LIMIT ?",
+                (sid, *likes, max_hits * 8)).fetchall()
         con.close()
     except Exception:
         return out
@@ -2330,9 +2406,16 @@ def grep_opencode(sid, pats_b, pat_s, query, max_hits=2):
             o = json.loads(d) if isinstance(d, str) else d
         except Exception:
             continue
-        if not isinstance(o, dict) or o.get("type") != "text":
+        if isinstance(o, dict) and o.get("type") == "text":
+            txt = o.get("text")
+        elif isinstance(o, dict) and "content" in o:
+            # v2 assistant rows: gather text chunks from the content array
+            txt = "\n".join(c.get("text", "") for c in (o.get("content") or [])
+                            if isinstance(c, dict) and c.get("type") == "text")
+        elif isinstance(o, dict):
+            txt = o.get("text")
+        else:
             continue
-        txt = o.get("text")
         if isinstance(txt, str) and pat_s.search(txt):
             out.append(_snippet(txt, pat_s))
             if len(out) >= max_hits:
@@ -2701,7 +2784,88 @@ def _rm_argv(agent, sid, hard):
         if hard:
             return ["codex", "delete", "--force", sid]
         return ["codex", "archive", sid]
+    if agent == "goose":
+        # goose session remove has no --yes flag; it shows an interactive
+        # confirm dialog that needs a tty. _run_tty() answers it after ax's
+        # own confirmation has already passed.
+        return ["goose", "session", "remove", "--session-id", sid]
+    if agent == "opencode":
+        return ["opencode", "session", "delete", sid]
     return None
+
+
+# providers whose rm CLI needs a tty (interactive confirm dialog)
+_RM_TTY_AGENTS = {"goose": {"expect": r"delete these sessions", "answer": "y"}}
+
+
+def _run_tty(argv, expect=None, answer="y", timeout=30):
+    """Run argv under a pty; after `expect` appears in output, write `answer`.
+
+    Returns (returncode, combined output). On timeout the child is killed
+    and 124 is returned (same convention as timeout(1)).
+    """
+    import pty
+    import select
+    import signal
+
+    master, slave = pty.openpty()
+    try:
+        p = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave,
+                             close_fds=True, start_new_session=True)
+    except OSError as e:
+        os.close(master)
+        os.close(slave)
+        print(f"warn: {argv[0]}: {e}", file=sys.stderr)
+        return 127, ""
+    os.close(slave)
+    buf = b""
+    answered = expect is None
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            if not answered and expect:
+                m = re.search(expect, buf.decode(errors="replace"))
+                if m:
+                    os.write(master, (answer + "\r").encode())
+                    answered = True
+            r, _, _ = select.select([master], [], [], 0.1)
+            if r:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    chunk = b""
+                if chunk:
+                    buf += chunk
+                elif p.poll() is not None:
+                    break
+            if p.poll() is not None:
+                # drain remaining output
+                while True:
+                    r, _, _ = select.select([master], [], [], 0.1)
+                    if not r:
+                        break
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    buf += chunk
+                break
+            if time.monotonic() > deadline:
+                p.kill()
+                p.wait()
+                return 124, buf.decode(errors="replace")
+    finally:
+        try:
+            os.close(master)
+        except OSError:
+            pass
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+    return (p.returncode if p.returncode is not None else 124,
+            buf.decode(errors="replace"))
 
 
 def cmd_rm(args):
@@ -2717,7 +2881,8 @@ def cmd_rm(args):
         return 1
     argv = _rm_argv(agent, sid, hard)
     if argv is None:
-        print(f"ax: rm not supported for {agent} (supported: devin, codex)",
+        print(f"ax: rm not supported for {agent} "
+              f"(supported: devin, codex, goose, opencode)",
               file=sys.stderr)
         return 2
     target = _find_session(agent, sid)
@@ -2732,6 +2897,14 @@ def cmd_rm(args):
         print(f"ax: {argv[0]} not found in PATH", file=sys.stderr)
         return 1
     print(f"+ {' '.join(argv)}", file=sys.stderr)
+    tty = _RM_TTY_AGENTS.get(agent)
+    if tty:
+        rc, _out = _run_tty(argv, expect=tty["expect"], answer=tty["answer"])
+        if rc == 124:
+            print(f"warn: {' '.join(argv)} timed out", file=sys.stderr)
+        elif rc != 0:
+            print(f"warn: {' '.join(argv)} exited {rc}", file=sys.stderr)
+        return rc
     p = subprocess.run(argv)
     if p.returncode != 0:
         print(f"warn: {' '.join(argv)} exited {p.returncode}", file=sys.stderr)
