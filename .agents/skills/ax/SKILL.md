@@ -1,11 +1,11 @@
 ---
 name: ax
-description: "Find, summarize, preview, and resume cross-agent sessions (claude / codex / agy / opencode / devin) using the ax CLI. Use when the user wants to search past sessions, pick a session to continue, or switch context across agents."
+description: "Find, summarize, preview, and resume cross-agent sessions (claude / codex / agy / opencode / devin / aider / goose / omp / vibe / hermes) using the ax CLI. Use when the user wants to search past sessions, pick a session to continue, or switch context across agents."
 ---
 
 # ax — マルチエージェント横断セッションピッカー
 
-`ax` は claude / codex / agy (antigravity-cli) / opencode / devin の過去セッションを1つの fzf/JSON インターフェースで扱う。
+`ax` は claude / codex / agy (antigravity-cli) / opencode / devin / aider / goose / omp / vibe / hermes の過去セッションを1つの fzf/JSON インターフェースで扱う。
 
 ## インストール
 
@@ -42,7 +42,7 @@ npx skills add kuwa72/ax --skill ax -g
 
 | key | type | meaning |
 | --- | --- | --- |
-| `agent` | string | `claude`, `codex`, `agy`, `opencode`, `devin` のいずれか |
+| `agent` | string | `claude`, `codex`, `agy`, `opencode`, `devin`, `aider`, `goose`, `omp`, `vibe`, `hermes` のいずれか (aider の `id` は履歴ファイルのパス) |
 | `id` | string | セッション ID |
 | `epoch` | int | 最終更新時刻 (Unix epoch seconds) |
 | `cwd` | string | 作業ディレクトリ (`?` の場合あり) |

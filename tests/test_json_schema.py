@@ -36,8 +36,12 @@ class TestJsonSchema(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_schema_test_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         for src, dst in [("claude", ".claude"), ("codex", ".codex"),
-                         ("gemini", ".gemini"), ("local", ".local")]:
+                         ("gemini", ".gemini"), ("local", ".local"),
+                         ("aider", "aiderws"), ("omp", ".omp"),
+                         ("vibe", ".vibe"), ("hermes", ".hermes")]:
             s = os.path.join(FIXTURES, src)
             d = os.path.join(cls.tmp, dst)
             if os.path.isdir(s):
@@ -50,6 +54,7 @@ class TestJsonSchema(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def _capture_stdout(self, fn, *args, **kwargs):

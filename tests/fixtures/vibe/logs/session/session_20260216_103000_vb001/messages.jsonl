@@ -1,0 +1,3 @@
+{"role": "system", "content": "system prompt ignored"}
+{"role": "user", "content": "Summarize the logs"}
+{"role": "assistant", "content": [{"type": "text", "text": "Reply to: Summarize the logs"}]}

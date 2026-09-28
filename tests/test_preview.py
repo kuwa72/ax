@@ -17,6 +17,10 @@ CASES = [
     ("agy", "agy-1"),
     ("opencode", "oc-1"),
     ("devin", "dev-1"),
+    ("goose", "g-1"),
+    ("omp", "ompid1"),
+    ("vibe", "vb001"),
+    ("hermes", "h-1"),
 ]
 
 ROLE_RE = re.compile(r"^\s*\[(user|ai|msg|[a-z_]+)\]( \S.*)?$")
@@ -27,11 +31,17 @@ class TestPreviewFormat(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_preview_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         for src, dst in [
             ("claude", ".claude"),
             ("codex", ".codex"),
             ("gemini", ".gemini"),
             ("local", ".local"),
+            ("aider", "aiderws"),
+            ("omp", ".omp"),
+            ("vibe", ".vibe"),
+            ("hermes", ".hermes"),
         ]:
             s = os.path.join(FIXTURES, src)
             d = os.path.join(cls.tmp, dst)
@@ -45,6 +55,7 @@ class TestPreviewFormat(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def _capture_stdout(self, fn, *args):
@@ -174,11 +185,17 @@ class TestAgyPlannerResponse(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_agy_planner_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         for src, dst in [
             ("claude", ".claude"),
             ("codex", ".codex"),
             ("gemini", ".gemini"),
             ("local", ".local"),
+            ("aider", "aiderws"),
+            ("omp", ".omp"),
+            ("vibe", ".vibe"),
+            ("hermes", ".hermes"),
         ]:
             s = os.path.join(FIXTURES, src)
             d = os.path.join(cls.tmp, dst)
@@ -204,6 +221,7 @@ class TestAgyPlannerResponse(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def test_agy_planner_response_is_ai(self):

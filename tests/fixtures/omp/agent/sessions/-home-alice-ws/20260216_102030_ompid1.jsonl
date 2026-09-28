@@ -1,0 +1,5 @@
+{"type": "title", "title": "omp test one", "source": "auto"}                                                                                                                                                                                                   
+{"type": "session", "version": 3, "id": "ompid1", "timestamp": "2026-02-16T10:20:30.000Z", "cwd": "/home/alice/ws"}
+{"type": "message", "id": "a1", "parentId": null, "timestamp": "2026-02-16T10:21:00.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "Fix the tokenizer"}]}}
+{"type": "message", "id": "a2", "parentId": "a1", "timestamp": "2026-02-16T10:22:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "I'll fix the tokenizer"}]}}
+{"type": "message", "id": "a3", "parentId": "a2", "timestamp": "2026-02-16T10:23:00.000Z", "message": {"role": "toolResult", "toolName": "exec", "content": [{"type": "text", "text": "tool output ignored"}]}}

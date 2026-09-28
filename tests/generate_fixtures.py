@@ -353,10 +353,233 @@ def generate_devin():
             )
 
 
+def generate_aider():
+    base = os.path.join(FIXTURES, "fixtures", "aider")
+    write_text(
+        os.path.join(base, "proj-one", ".aider.chat.history.md"),
+        """\
+# aider chat started at 2026-01-10 09:00:00
+
+#### Refactor the parser
+#### in two steps
+
+I'll refactor the parser now.
+
+> Applied edit to parser.py
+
+# aider chat started at 2026-01-12 15:30:00
+
+#### Fix the lexer bug
+
+Here is the fix for the lexer bug.
+
+```python
+#### not a user line inside a fence
+```
+""",
+    )
+    write_text(
+        os.path.join(base, "proj-two", ".aider.chat.history.md"),
+        """\
+# aider chat started at 2026-01-11 12:00:00
+
+#### Update the README
+
+Done updating the README.
+""",
+    )
+
+
+def generate_goose():
+    base = os.path.join(FIXTURES, "fixtures", "local", "share", "goose",
+                        "sessions")
+    os.makedirs(base, exist_ok=True)
+    dbp = os.path.join(base, "sessions.db")
+    if os.path.exists(dbp):
+        os.remove(dbp)
+    con = sqlite3.connect(dbp)
+    con.execute(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT, "
+        "name TEXT, description TEXT, session_type TEXT, created_at TEXT, "
+        "updated_at TEXT, message_count INTEGER, archived_at TEXT)")
+    con.execute(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, "
+        "role TEXT, content_json TEXT, timestamp INTEGER)")
+    con.executemany(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("g-1", "/home/alice/gooseproj", "goose test one", "", "user",
+             "2026-01-15 09:00:00", "2026-01-15 10:00:00", 2, None),
+            ("g-2", "/home/alice/gooseproj2", "goose test two", "", "user",
+             "2026-01-14 09:00:00", "2026-01-14 10:00:00", 2, None),
+        ])
+    con.executemany(
+        "INSERT INTO messages (session_id, role, content_json, timestamp) "
+        "VALUES (?, ?, ?, ?)",
+        [
+            ("g-1", "user",
+             json.dumps([{"type": "text", "text": "Explain the indexer"}]),
+             1700000500),
+            ("g-1", "assistant",
+             json.dumps([{"type": "text",
+                          "text": "Here is how the indexer works"}]),
+             1700000501),
+            ("g-2", "user",
+             json.dumps([{"type": "text", "text": "Tune the scheduler"}]),
+             1700000400),
+        ])
+    con.commit()
+    con.close()
+
+    # legacy pre-1.10 jsonl file (not imported into the db)
+    write_jsonl(
+        os.path.join(base, "20260101_1.jsonl"),
+        [
+            {"description": "legacy goose session",
+             "working_dir": "/home/alice/legacy",
+             "created_at": "2026-01-01 09:00:00",
+             "updated_at": "2026-01-01 09:30:00"},
+            {"id": "m1", "role": "user", "created": 1700000100,
+             "content": [{"type": "text", "text": "Legacy user message"}]},
+            {"id": "m2", "role": "assistant", "created": 1700000101,
+             "content": [{"type": "text", "text": "Legacy reply"}]},
+        ],
+    )
+
+
+def generate_omp():
+    base = os.path.join(FIXTURES, "fixtures", "omp", "agent", "sessions")
+    # current layout: 256-byte title slot line, then the session header
+    d1 = os.path.join(base, "-home-alice-ws")
+    os.makedirs(d1, exist_ok=True)
+    p1 = os.path.join(d1, "20260216_102030_ompid1.jsonl")
+    slot = json.dumps({"type": "title", "title": "omp test one",
+                       "source": "auto"})
+    slot = slot + " " * max(0, 255 - len(slot))
+    with open(p1, "w") as f:
+        f.write(slot + "\n")
+        for obj in [
+            {"type": "session", "version": 3, "id": "ompid1",
+             "timestamp": "2026-02-16T10:20:30.000Z",
+             "cwd": "/home/alice/ws"},
+            {"type": "message", "id": "a1", "parentId": None,
+             "timestamp": "2026-02-16T10:21:00.000Z",
+             "message": {"role": "user",
+                         "content": [{"type": "text",
+                                      "text": "Fix the tokenizer"}]}},
+            {"type": "message", "id": "a2", "parentId": "a1",
+             "timestamp": "2026-02-16T10:22:00.000Z",
+             "message": {"role": "assistant",
+                         "content": [{"type": "text",
+                                      "text": "I'll fix the tokenizer"}]}},
+            {"type": "message", "id": "a3", "parentId": "a2",
+             "timestamp": "2026-02-16T10:23:00.000Z",
+             "message": {"role": "toolResult", "toolName": "exec",
+                         "content": [{"type": "text",
+                                      "text": "tool output ignored"}]}},
+        ]:
+            f.write(json.dumps(obj) + "\n")
+    # legacy header-first layout (no title slot)
+    write_jsonl(
+        os.path.join(base, "-tmp-x", "20260217_090000_ompid2.jsonl"),
+        [
+            {"type": "session", "version": 1, "id": "ompid2",
+             "timestamp": "2026-02-17T09:00:00.000Z", "cwd": "/home/bob/tmp"},
+            {"type": "message", "id": "b1", "parentId": None,
+             "timestamp": "2026-02-17T09:01:00.000Z",
+             "message": {"role": "user",
+                         "content": [{"type": "text",
+                                      "text": "Second omp session"}]}},
+            {"type": "message", "id": "b2", "parentId": "b1",
+             "timestamp": "2026-02-17T09:02:00.000Z",
+             "message": {"role": "assistant",
+                         "content": [{"type": "text",
+                                      "text": "Second omp reply"}]}},
+        ],
+    )
+
+
+def generate_vibe():
+    base = os.path.join(FIXTURES, "fixtures", "vibe", "logs", "session")
+    for name, sid, title, wd, first in [
+        ("session_20260216_103000_vb001", "vb001", "vibe test one",
+         "/home/alice/vibeproj", "Summarize the logs"),
+        ("session_20260217_090000_vb002", "vb002", None,
+         "/home/alice/vibeproj2", "Plan the deploy"),
+    ]:
+        d = os.path.join(base, name)
+        os.makedirs(d, exist_ok=True)
+        meta = {"session_id": sid,
+                "environment": {"working_directory": wd},
+                "origin_directory": wd,
+                "total_messages": 2,
+                "updated_at": "2026-02-17T09:00:00Z"}
+        if title:
+            meta["title"] = title
+        with open(os.path.join(d, "meta.json"), "w") as f:
+            json.dump(meta, f)
+        write_jsonl(
+            os.path.join(d, "messages.jsonl"),
+            [
+                {"role": "system", "content": "system prompt ignored"},
+                {"role": "user", "content": first},
+                {"role": "assistant",
+                 "content": [{"type": "text",
+                              "text": f"Reply to: {first}"}]},
+            ],
+        )
+        os.utime(os.path.join(d, "messages.jsonl"),
+                 (1700000600, 1700000600))
+
+
+def generate_hermes():
+    base = os.path.join(FIXTURES, "fixtures", "hermes")
+    os.makedirs(base, exist_ok=True)
+    dbp = os.path.join(base, "state.db")
+    if os.path.exists(dbp):
+        os.remove(dbp)
+    con = sqlite3.connect(dbp)
+    con.execute(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, "
+        "title TEXT, cwd TEXT, model TEXT, started_at REAL, ended_at REAL, "
+        "message_count INTEGER)")
+    con.execute(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, "
+        "role TEXT, content TEXT, active INTEGER, timestamp REAL)")
+    con.executemany(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("h-1", "cli", "hermes test one", "/home/alice/hproj",
+             "hermes-4", 1700000700.0, 1700003600.0, 3),
+            ("h-2", "cli", None, "/home/alice/hproj2",
+             "hermes-4", 1700000800.0, None, 2),
+        ])
+    con.executemany(
+        "INSERT INTO messages (session_id, role, content, active, timestamp) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [
+            ("h-1", "user", "Check the gateway", 1, 1700000700.0),
+            ("h-1", "assistant", "Gateway is running", 1, 1700000701.0),
+            ("h-1", "user", "old inactive message", 0, 1700000600.0),
+            ("h-2", "user", "Restart the worker", 1, 1700000800.0),
+            ("h-2", "assistant",
+             "\x00json:" + json.dumps(
+                 [{"type": "text", "text": "Worker restarted"}]),
+             1, 1700000801.0),
+        ])
+    con.commit()
+    con.close()
+
+
 if __name__ == "__main__":
     generate_claude()
     generate_codex()
     generate_agy()
     generate_opencode()
     generate_devin()
+    generate_aider()
+    generate_goose()
+    generate_omp()
+    generate_vibe()
+    generate_hermes()
     print("fixtures generated in", os.path.join(FIXTURES, "fixtures"))

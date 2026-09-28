@@ -36,11 +36,17 @@ class TestAx(unittest.TestCase):
     def setUpClass(cls):
         cls._orig_home = os.environ.get("HOME")
         cls.tmp = tempfile.mkdtemp(prefix="ax_test_home_")
+        cls._orig_cwd = os.getcwd()
+        os.chdir(cls.tmp)
         mapping = [
             ("claude", ".claude"),
             ("codex", ".codex"),
             ("gemini", ".gemini"),
             ("local", ".local"),
+            ("aider", "aiderws"),
+            ("omp", ".omp"),
+            ("vibe", ".vibe"),
+            ("hermes", ".hermes"),
         ]
         for src, dst in mapping:
             s = os.path.join(FIXTURES, src)
@@ -48,6 +54,12 @@ class TestAx(unittest.TestCase):
             if os.path.isdir(s):
                 shutil.copytree(s, d)
         cls.mod = load_ax(cls.tmp)
+        cls.aider_ids = {
+            os.path.join(cls.tmp, "aiderws", "proj-one",
+                         ".aider.chat.history.md"),
+            os.path.join(cls.tmp, "aiderws", "proj-two",
+                         ".aider.chat.history.md"),
+        }
 
     @classmethod
     def tearDownClass(cls):
@@ -55,6 +67,7 @@ class TestAx(unittest.TestCase):
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = cls._orig_home
+        os.chdir(cls._orig_cwd)
         shutil.rmtree(cls.tmp)
 
     def _capture_stdout(self, fn, *args, **kwargs):
@@ -81,7 +94,16 @@ class TestAx(unittest.TestCase):
             "oc-2",
             "dev-1",
             "dev-2",
-        }
+            "g-1",
+            "g-2",
+            "20260101_1",
+            "ompid1",
+            "ompid2",
+            "vb001",
+            "vb002",
+            "h-1",
+            "h-2",
+        } | self.aider_ids
         self.assertEqual(ids, expected)
         self.assertNotIn("dev-hidden", ids)
 
@@ -143,6 +165,52 @@ class TestAx(unittest.TestCase):
         self.assertEqual(by_id["dev-1"]["title"], "devin test one")
         self.assertEqual(by_id["dev-2"]["title"], "devin test two")
 
+    def test_list_aider(self):
+        rows = self.mod.list_aider(400)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(set(by_id), self.aider_ids)
+        p1 = os.path.join(self.tmp, "aiderws", "proj-one",
+                          ".aider.chat.history.md")
+        self.assertEqual(by_id[p1]["title"], "Fix the lexer bug")
+        self.assertEqual(by_id[p1]["cwd"], os.path.dirname(p1))
+        p2 = os.path.join(self.tmp, "aiderws", "proj-two",
+                          ".aider.chat.history.md")
+        self.assertEqual(by_id[p2]["title"], "Update the README")
+
+    def test_list_goose(self):
+        rows = self.mod.list_goose(400)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(set(by_id), {"g-1", "g-2", "20260101_1"})
+        self.assertEqual(by_id["g-1"]["title"], "goose test one")
+        self.assertEqual(by_id["g-1"]["cwd"], "/home/alice/gooseproj")
+        self.assertEqual(by_id["20260101_1"]["title"], "legacy goose session")
+        self.assertEqual(by_id["20260101_1"]["cwd"], "/home/alice/legacy")
+
+    def test_list_omp(self):
+        rows = self.mod.list_omp(400)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(set(by_id), {"ompid1", "ompid2"})
+        self.assertEqual(by_id["ompid1"]["title"], "omp test one")
+        self.assertEqual(by_id["ompid1"]["cwd"], "/home/alice/ws")
+        # legacy header-first file has no title -> first user message
+        self.assertEqual(by_id["ompid2"]["title"], "Second omp session")
+
+    def test_list_vibe(self):
+        rows = self.mod.list_vibe(400)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(set(by_id), {"vb001", "vb002"})
+        self.assertEqual(by_id["vb001"]["title"], "vibe test one")
+        self.assertEqual(by_id["vb001"]["cwd"], "/home/alice/vibeproj")
+        self.assertEqual(by_id["vb002"]["title"], "Plan the deploy")
+
+    def test_list_hermes(self):
+        rows = self.mod.list_hermes(400)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(set(by_id), {"h-1", "h-2"})
+        self.assertEqual(by_id["h-1"]["title"], "hermes test one")
+        self.assertEqual(by_id["h-1"]["cwd"], "/home/alice/hproj")
+        self.assertEqual(by_id["h-2"]["title"], "Restart the worker")
+
     def test_preview_claude(self):
         text = self.mod.preview_claude("sess-c1a2b3", 10)
         self.assertIn("--- claude sess-c1a2b3", text)
@@ -184,12 +252,57 @@ class TestAx(unittest.TestCase):
         self.assertIn("I will build a landing page", text)
         self.assertNotIn("this should be ignored", text)
 
+    def test_preview_aider(self):
+        sid = os.path.join(self.tmp, "aiderws", "proj-one",
+                           ".aider.chat.history.md")
+        text = self.mod.preview_aider(sid, 10)
+        self.assertIn(f"--- aider {sid}", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Fix the lexer bug", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("Here is the fix for the lexer bug.", text)
+        self.assertNotIn("Applied edit to parser.py", text)
+
+    def test_preview_goose(self):
+        text = self.mod.preview_goose("g-1", 10)
+        self.assertIn("--- goose g-1", text)
+        self.assertIn("Explain the indexer", text)
+        self.assertIn("Here is how the indexer works", text)
+        legacy = self.mod.preview_goose("20260101_1", 10)
+        self.assertIn("Legacy user message", legacy)
+        self.assertIn("Legacy reply", legacy)
+
+    def test_preview_omp(self):
+        text = self.mod.preview_omp("ompid1", 10)
+        self.assertIn("--- omp ompid1", text)
+        self.assertIn("[user]", text)
+        self.assertIn("Fix the tokenizer", text)
+        self.assertIn("[ai]", text)
+        self.assertIn("I'll fix the tokenizer", text)
+        self.assertNotIn("tool output ignored", text)
+
+    def test_preview_vibe(self):
+        text = self.mod.preview_vibe("vb001", 10)
+        self.assertIn("--- vibe vb001", text)
+        self.assertIn("Summarize the logs", text)
+        self.assertIn("Reply to: Summarize the logs", text)
+        self.assertNotIn("system prompt ignored", text)
+
+    def test_preview_hermes(self):
+        text = self.mod.preview_hermes("h-1", 10)
+        self.assertIn("--- hermes h-1", text)
+        self.assertIn("Check the gateway", text)
+        self.assertIn("Gateway is running", text)
+        self.assertNotIn("old inactive message", text)
+        text2 = self.mod.preview_hermes("h-2", 10)
+        self.assertIn("Worker restarted", text2)
+
     def test_cmd_list_json(self):
         _, out = self._capture_stdout(self.mod.cmd_list, ["--json"])
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 21)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])
