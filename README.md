@@ -27,6 +27,7 @@ ax                         # fzf picker (enter=resume ctrl-g=body search ctrl-d=
 ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY] [--regex]
 ax grep <query> [--agent NAME] [--limit N] [--regex]   # cross-agent body search -> fzf -> resume
 ax preview <agent> <id> [--json] [--lines N]
+ax stats [--json] [--days N] [--top N]   # usage stats: per-agent counts, daily activity, top cwd
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
 ax rename <agent> <id> --name "..."   # change display title (ax local)
@@ -36,6 +37,8 @@ ax agents                  # detection status / size / count for each store
 `--grep` searches conversation bodies with case-insensitive substring matching (Unicode case folding) and appends the hit snippet to the `title` column as `▸ <snippet>`. Add `--regex` to search with a Python regex instead (e.g. `ax grep "refactor.*login" --regex`); an invalid pattern prints a stderr warning and falls back to literal matching. `ax grep <query> [--agent NAME] [--limit N] [--regex]` opens the same search in fzf directly: `--agent` restricts to one provider (unknown names return empty, like `list`), `--limit` overrides the default collect limit of 400, and only positional args form the query (e.g. `ax grep "foo bar" --agent codex` searches `foo bar`). Inside the picker, press `ctrl-g` to switch to body search; in the search result view, `ctrl-g` starts a new search and `ctrl-a` returns to the full list (uses fzf 0.44-compatible `become`). `ctrl-d` deletes the selected session: `ax rm` runs with its own confirmation prompt and the picker restarts afterwards. Deletion is available for devin / codex / goose / opencode; other providers exit with `not supported`.
 
 Add to PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
+
+`ax stats` prints usage statistics from session metadata only (message bodies are never read): a per-agent summary (`agent`, `sessions`, `first`/`last` epoch), daily session counts for the trailing `--days N` days (default 14), and the top `--top N` working directories (default 10). `--json` emits `{"agents": […], "daily": […], "top_cwd": […]}` for scripting. Message counts are not included: the collectors expose session metadata only.
 
 ## Configuration (optional)
 
