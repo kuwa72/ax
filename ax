@@ -7,6 +7,7 @@ Usage:
     ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY] [--regex]
     ax grep <query> [--agent NAME] [--limit N] [--regex]   body-search -> fzf -> resume
     ax preview <agent> <id> [--json] [--lines N]
+    ax stats [--json] [--days N] [--top N]   usage stats (sessions, activity, cwd)
     ax resume <agent> <id>
     ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
     ax rename <agent> <id> --name "..."   set an ax-local display title
@@ -3042,6 +3043,69 @@ def cmd_list(args):
         print(fmt_tsv(rows))
 
 
+def cmd_stats(args):
+    """Usage statistics across agents (session metadata only)."""
+    as_json = False
+    days = 14
+    top = 10
+    i = 0
+    while i < len(args):
+        if args[i] == "--json":
+            as_json = True
+        elif args[i] == "--days" and i + 1 < len(args):
+            i += 1
+            days = max(1, int(args[i]))
+        elif args[i] == "--top" and i + 1 < len(args):
+            i += 1
+            top = max(1, int(args[i]))
+        i += 1
+    rows = collect(list(AGENTS), 100000)
+    by_agent = {}
+    for r in rows:
+        a = by_agent.get(r["agent"])
+        if a is None:
+            a = {"agent": r["agent"], "sessions": 0,
+                 "first": r["epoch"], "last": r["epoch"]}
+            by_agent[r["agent"]] = a
+        a["sessions"] += 1
+        a["first"] = min(a["first"], r["epoch"])
+        a["last"] = max(a["last"], r["epoch"])
+    agents = sorted(by_agent.values(), key=lambda a: -a["sessions"])
+    # UTC-day buckets over the trailing `days` days
+    daily_counts = {}
+    for r in rows:
+        d = r["epoch"] // 86400
+        daily_counts[d] = daily_counts.get(d, 0) + 1
+    today = int(time.time()) // 86400
+    daily = [{"date": time.strftime("%Y-%m-%d", time.gmtime(d * 86400)),
+              "sessions": daily_counts.get(d, 0)}
+             for d in range(today - days + 1, today + 1)]
+    cwd_counts = {}
+    for r in rows:
+        c = r["cwd"]
+        if c and c != "?":
+            cwd_counts[c] = cwd_counts.get(c, 0) + 1
+    top_cwd = [{"cwd": c, "sessions": n}
+               for c, n in sorted(cwd_counts.items(),
+                                    key=lambda kv: (-kv[1], kv[0]))[:top]]
+    if as_json:
+        print(json.dumps({"agents": agents, "daily": daily,
+                          "top_cwd": top_cwd}, ensure_ascii=False))
+        return 0
+    out = ["agent\tsessions\tfirst\tlast"]
+    for a in agents:
+        out.append(f"{a['agent']}\t{a['sessions']}"
+                   f"\t{a['first']}\t{a['last']}")
+    out.append("date\tsessions")
+    for d in daily:
+        out.append(f"{d['date']}\t{d['sessions']}")
+    out.append("cwd\tsessions")
+    for c in top_cwd:
+        out.append(f"{c['cwd']}\t{c['sessions']}")
+    print("\n".join(out))
+    return 0
+
+
 def cmd_preview(args):
     as_json = "--json" in args
     lines = None
@@ -3473,6 +3537,8 @@ def main():
         return cmd_grep(rest)
     if cmd == "preview":
         return cmd_preview(rest)
+    if cmd == "stats":
+        return cmd_stats(rest)
     if cmd == "resume":
         return cmd_resume(rest)
     if cmd == "rm":
