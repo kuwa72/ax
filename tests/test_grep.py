@@ -71,6 +71,88 @@ class TestGrep(unittest.TestCase):
             sys.stdout = old
         return result, buf.getvalue()
 
+    def test_grep_regex_pattern(self):
+        rows = self.mod.grep_sessions("framew.*k", ["claude"], 50,
+                                       regex=True)
+        self.assertIn("sess-c1a2b3", {r["id"] for r in rows})
+
+    def test_grep_regex_alternation(self):
+        rows = self.mod.grep_sessions("index|lexer", ["codex"], 50,
+                                       regex=True)
+        self.assertIn("codex-2", {r["id"] for r in rows})
+
+    def test_grep_regex_anchor_does_not_lose_hits(self):
+        # ^ アンカー付きでもプリフィルタが偽陰性を出さないこと
+        rows = self.mod.grep_sessions("^Refactor", ["claude"], 50,
+                                       regex=True)
+        self.assertIn("sess-c1a2b3", {r["id"] for r in rows})
+
+    def test_grep_regex_non_ascii_scans_all_files(self):
+        # マルチバイト正規表現は byte プリフィルタを省略 (全走査) するため
+        # \uXXXX エスケープ格納でも偽陰性が出ない
+        rows = self.mod.grep_sessions("マイグレーション|移行",
+                                       ["claude"], 50, regex=True)
+        self.assertIn("sess-c1a2b3", {r["id"] for r in rows})
+
+    def test_grep_regex_invalid_falls_back_to_literal(self):
+        # 無効な正規表現は stderr 警告のうえリテラル検索にフォールバック
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = self.mod.grep_sessions("(clear path", ["claude"], 50,
+                                           regex=True)
+        self.assertIn("sess-c1a2b3", {r["id"] for r in rows})
+        self.assertIn("regex", err.getvalue().lower())
+
+    def test_grep_unicode_case_insensitive(self):
+        # クエリ小文字 ↔ 格納大文字 (Greek): byte プリフィルタも Unicode
+        # 畳み込みする (bytes の IGNORECASE は ASCII しか畳まないため)
+        for q in ("οδος", "ΟΔΟΣ"):
+            rows = self.mod.grep_sessions(q, ["claude"], 50)
+            self.assertIn("sess-c1a2b3", {r["id"] for r in rows}, q)
+
+    def test_grep_unicode_case_insensitive_opencode(self):
+        # SQLite LIKE は ASCII しか畳まないので case variant を LIKE に追加
+        for q in ("οδος", "ΟΔΟΣ"):
+            rows = self.mod.grep_sessions(q, ["opencode"], 50)
+            self.assertIn("oc-1", {r["id"] for r in rows}, q)
+
+    def test_cmd_list_grep_regex(self):
+        _, out = self._capture_stdout(
+            self.mod.cmd_list, ["--grep", "framew.*k", "--regex"])
+        self.assertIn("sess-c1a2b3", out)
+
+    def test_cmd_list_grep_regex_invalid_fallback(self):
+        _, out = self._capture_stdout(
+            self.mod.cmd_list, ["--grep", "(clear path", "--regex"])
+        self.assertIn("sess-c1a2b3", out)
+
+    def test_cmd_grep_regex_flag(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=[]) as mgrep, \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.mod.cmd_grep(["framew.*k", "--regex"])
+        self.assertTrue(mgrep.call_args[1].get("regex"))
+
+    def test_cmd_grep_regex_flag_in_research_filter(self):
+        # ctrl-g の再検索でも --regex が引き継がれること
+        rows = [{"agent": "claude", "id": "sess-c1a2b3", "epoch": 1,
+                  "cwd": "?", "title": "t"}]
+
+        class _Proc:
+            returncode = 1
+            stdout = ""
+
+        with mock.patch("shutil.which", return_value="/usr/bin/fzf"), \
+                mock.patch.object(
+                    self.mod, "grep_sessions", return_value=rows), \
+                mock.patch("subprocess.run", return_value=_Proc()) as mrun, \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.mod.cmd_grep(["framew.*k", "--regex", "--agent", "claude"])
+        filt = "".join(mrun.call_args[0][0])
+        self.assertIn("--regex", filt)
+        self.assertIn("--agent claude", filt)
+
     def test_grep_hits_each_agent_body(self):
         cases = [
             ("claude", "framework", {"sess-c1a2b3"}),

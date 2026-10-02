@@ -24,8 +24,8 @@ Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
 
 ```sh
 ax                         # fzf picker (enter=resume ctrl-g=body search ctrl-d=delete)
-ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-ax grep <query> [--agent NAME] [--limit N]   # cross-agent body search -> fzf -> resume
+ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY] [--regex]
+ax grep <query> [--agent NAME] [--limit N] [--regex]   # cross-agent body search -> fzf -> resume
 ax preview <agent> <id> [--json] [--lines N]
 ax resume <agent> <id>
 ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
@@ -33,7 +33,7 @@ ax rename <agent> <id> --name "..."   # change display title (ax local)
 ax agents                  # detection status / size / count for each store
 ```
 
-`--grep` searches conversation bodies with case-insensitive ASCII substring matching and appends the hit snippet to the `title` column as `▸ <snippet>`. `ax grep <query> [--agent NAME] [--limit N]` opens the same search in fzf directly: `--agent` restricts to one provider (unknown names return empty, like `list`), `--limit` overrides the default collect limit of 400, and only positional args form the query (e.g. `ax grep "foo bar" --agent codex` searches `foo bar`). Inside the picker, press `ctrl-g` to switch to body search; in the search result view, `ctrl-g` starts a new search and `ctrl-a` returns to the full list (uses fzf 0.44-compatible `become`). `ctrl-d` deletes the selected session: `ax rm` runs with its own confirmation prompt and the picker restarts afterwards. Deletion is available for devin / codex / goose / opencode; other providers exit with `not supported`.
+`--grep` searches conversation bodies with case-insensitive substring matching (Unicode case folding) and appends the hit snippet to the `title` column as `▸ <snippet>`. Add `--regex` to search with a Python regex instead (e.g. `ax grep "refactor.*login" --regex`); an invalid pattern prints a stderr warning and falls back to literal matching. `ax grep <query> [--agent NAME] [--limit N] [--regex]` opens the same search in fzf directly: `--agent` restricts to one provider (unknown names return empty, like `list`), `--limit` overrides the default collect limit of 400, and only positional args form the query (e.g. `ax grep "foo bar" --agent codex` searches `foo bar`). Inside the picker, press `ctrl-g` to switch to body search; in the search result view, `ctrl-g` starts a new search and `ctrl-a` returns to the full list (uses fzf 0.44-compatible `become`). `ctrl-d` deletes the selected session: `ax rm` runs with its own confirmation prompt and the picker restarts afterwards. Deletion is available for devin / codex / goose / opencode; other providers exit with `not supported`.
 
 Add to PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
@@ -151,5 +151,5 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 
 ## Limitations
 
-- Body search is ASCII case-insensitive substring only (semantic search and persistent indexes are out of scope). JSONL files are pre-checked with mmap; `opencode.db` is scanned with `LIKE … LIMIT` on the SQLite side.
+- Body search is case-insensitive substring (Unicode case folding) or, with `--regex`, Python regex; semantic search and persistent indexes are out of scope. JSONL files are pre-checked with mmap; SQLite stores are pre-checked with `LIKE … LIMIT` (regex mode scans all rows of the session instead). Non-ASCII regex patterns skip the mmap prefilter and read every file, since a regex may match the `\uXXXX`-escaped form in ways a raw byte pattern cannot express.
 - If one provider fails, `ax` continues with the others and prints a stderr warning.

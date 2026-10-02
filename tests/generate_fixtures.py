@@ -51,6 +51,26 @@ def generate_claude():
             },
             {
                 "type": "user",
+                "message": {"content": "ΟΔΟΣ του αλγορίθμου"},
+                "timestamp": "2025-01-15T10:00:30.000Z",
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "η οδος είναι σαφής (clear path) "
+                                "マイグレーション計画"
+                            )
+                        }
+                    ]
+                },
+                "timestamp": "2025-01-15T10:00:45.000Z",
+            },
+            {
+                "type": "user",
                 "message": {
                     "content": (
                         "Please handle validation errors gracefully and show inline "
@@ -94,9 +114,10 @@ def generate_claude():
                 "type": "assistant",
                 "message": {
                     "content": [
-                        {"type": "text", "text": "Here is a test outline."}
+                        {"type": "text", "text": "Done. Validation errors now render inline."}
                     ]
                 },
+                "timestamp": "2025-01-15T10:02:00.000Z",
             },
         ],
     )
@@ -343,6 +364,7 @@ def generate_opencode():
     parts = [
         ("ocp-1", "ocm-1", "oc-1", "Explain this code", 1700000200000),
         ("ocp-2", "ocm-2", "oc-1", "Here is an explanation", 1700000200100),
+        ("ocp-gr", "ocm-1", "oc-1", "ΟΔΟΣ του αλγορίθμου", 1700000200200),
         ("ocp-3", "ocm-3", "oc-2", "Plan the feature", 1700000300000),
     ]
     for pid, mid, sid, text, ts in parts:
