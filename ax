@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ax - cross-agent session picker for claude / codex / agy / opencode / devin /
-aider / goose / omp / vibe / hermes.
+aider / goose / omp / vibe / hermes / crush / pi.
 
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
@@ -36,7 +36,8 @@ HOME = os.path.expanduser("~")
 SELF = os.path.abspath(sys.argv[0])
 
 ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
-              "aider", "goose", "omp", "vibe", "hermes")
+              "aider", "goose", "omp", "vibe", "hermes",
+              "crush", "pi")
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
@@ -58,6 +59,8 @@ PREVIEW_DEFAULTS = {
     "omp": 30,
     "vibe": 30,
     "hermes": 30,
+    "crush": 30,
+    "pi": 30,
 }
 
 
@@ -356,6 +359,8 @@ RESUME_CMD = {
     "omp": lambda i: (["omp", "--resume", i]),
     "vibe": lambda i: (["vibe", "--resume", i]),
     "hermes": lambda i: (["hermes", "--resume", i]),
+    "crush": lambda i: (["crush", "--session", i]),
+    "pi": lambda i: (["pi", "--session", i]),
 }
 
 
@@ -2543,6 +2548,351 @@ def store_info_hermes():
     return {"ok": True, "count": count, "size": size}
 
 
+# ---------------- pi ----------------
+def _pi_sessions_root():
+    return os.path.join(HOME, ".pi", "agent", "sessions")
+
+
+def _pi_session_files():
+    root = _pi_sessions_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for name in os.listdir(root):
+            d = os.path.join(root, name)
+            if not os.path.isdir(d):
+                continue
+            for fn in sorted(os.listdir(d)):
+                if fn.endswith(".jsonl"):
+                    out.append(os.path.join(d, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _pi_meta(path):
+    """First-line session metadata (id / timestamp / cwd)."""
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.loads(fh.readline())
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _pi_text(o):
+    if o.get("type") != "message":
+        return ""
+    msg = o.get("message")
+    if not isinstance(msg, dict) or \
+            msg.get("role") not in ("user", "assistant"):
+        return ""
+    return _text_blocks(msg.get("content"))
+
+
+def _pi_first_user(path):
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict) or \
+                        o.get("type") != "message":
+                    continue
+                msg = o.get("message")
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    t = _text_blocks(msg.get("content"))
+                    if t:
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def _pi_sid(meta, path):
+    sid = meta.get("id")
+    if isinstance(sid, str) and sid:
+        return sid
+    # fallback: <timestamp>_<uuid>.jsonl
+    return os.path.basename(path)[:-len(".jsonl")].rsplit("_", 1)[-1]
+
+
+def _pi_row(path):
+    meta = _pi_meta(path)
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("timestamp"), utc=True)
+    title = clean_title(_pi_first_user(path)) or "(untitled)"
+    return {"agent": "pi", "id": _pi_sid(meta, path), "epoch": epoch,
+            "cwd": meta.get("cwd") or "?", "title": title}
+
+
+def _pi_file(sid):
+    suffix = "_" + sid + ".jsonl"
+    for p in _pi_session_files():
+        meta = _pi_meta(p)
+        if meta.get("id") == sid or \
+                os.path.basename(p).endswith(suffix):
+            return p
+    return None
+
+
+def _lookup_pi(sid):
+    p = _pi_file(sid)
+    if not p:
+        return None
+    row = _pi_row(p)
+    if row["id"] != sid:
+        return None
+    return row
+
+
+def list_pi(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_pi_row(p) for p in _pi_session_files()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_pi(sid, n=None, color=None):
+    n = _preview_lines("pi", n)
+    p = _pi_file(sid)
+    if not p:
+        return f"pi session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _pi_text(o)
+                    if t:
+                        turns.append((o["message"]["role"], t))
+    except OSError:
+        pass
+    resume = f"resume: pi --session {sid}"
+    return render_preview("pi", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_pi():
+    files = _pi_session_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- crush ----------------
+def _crush_share():
+    return os.path.join(HOME, ".local", "share", "crush")
+
+
+def _crush_projects():
+    """[(project path, data_dir)] from projects.json."""
+    p = os.path.join(_crush_share(), "projects.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return []
+    out = []
+    for pr in d.get("projects", []) if isinstance(d, dict) else []:
+        if not isinstance(pr, dict):
+            continue
+        path = pr.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        dd = pr.get("data_dir")
+        if not isinstance(dd, str) or not dd:
+            dd = os.path.join(path, ".crush")
+        out.append((path, dd))
+    return out
+
+
+def _crush_db(data_dir):
+    p = os.path.join(data_dir, "crush.db")
+    if not os.path.exists(p):
+        return None
+    try:
+        return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+    except Exception as e:
+        print(f"warn: crush db: {e}", file=sys.stderr)
+        return None
+
+
+def _crush_msg_text(parts):
+    """Joined text from a crush parts JSON array
+    ([{'type': 'text', 'data': {'text': ...}}])."""
+    if not isinstance(parts, str):
+        return ""
+    try:
+        arr = json.loads(parts)
+    except Exception:
+        return ""
+    if not isinstance(arr, list):
+        return ""
+    out = []
+    for b in arr:
+        if not isinstance(b, dict) or b.get("type") != "text":
+            continue
+        data = b.get("data")
+        if isinstance(data, dict) and isinstance(data.get("text"), str):
+            out.append(data["text"])
+    return "\n".join(out)
+
+
+def _crush_sessions(con):
+    try:
+        rows = con.execute(
+            "SELECT id, title, updated_at FROM sessions "
+            "WHERE parent_session_id IS NULL "
+            "ORDER BY updated_at DESC").fetchall()
+    except Exception:
+        return []
+    return rows
+
+
+def _crush_row(sid, title, updated, path):
+    return {"agent": "crush", "id": sid,
+            "epoch": _epoch_from_ts(updated), "cwd": path,
+            "title": (title or "").strip() or "(untitled)"}
+
+
+def list_crush(limit=DEFAULT_LIMIT, no_cache=False):
+    out = []
+    for path, dd in _crush_projects():
+        con = _crush_db(dd)
+        if con is None:
+            continue
+        try:
+            for sid, title, updated in _crush_sessions(con):
+                out.append(_crush_row(sid, title, updated, path))
+        finally:
+            con.close()
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def _crush_session(sid):
+    """(con, project path) for one session id; (None, None) if absent."""
+    for path, dd in _crush_projects():
+        con = _crush_db(dd)
+        if con is None:
+            continue
+        try:
+            row = con.execute(
+                "SELECT id FROM sessions WHERE id=?", (sid,)).fetchone()
+        except Exception:
+            row = None
+        if row:
+            return con, path
+        con.close()
+    return None, None
+
+
+def _lookup_crush(sid):
+    con, path = _crush_session(sid)
+    if con is None:
+        return None
+    try:
+        row = con.execute(
+            "SELECT id, title, updated_at FROM sessions WHERE id=?",
+            (sid,)).fetchone()
+    except Exception:
+        return None
+    finally:
+        con.close()
+    if not row:
+        return None
+    return _crush_row(row[0], row[1], row[2], path)
+
+
+def preview_crush(sid, n=None, color=None):
+    n = _preview_lines("crush", n)
+    con, path = _crush_session(sid)
+    if con is None:
+        return f"crush session not found: {sid}"
+    try:
+        rows = con.execute(
+            "SELECT role, parts FROM messages WHERE session_id=?"
+            " ORDER BY created_at", (sid,)).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        con.close()
+    turns = []
+    for role, parts in rows:
+        t = _crush_msg_text(parts)
+        if t:
+            turns.append((role, t))
+    resume = f"resume: crush --session {sid}"
+    return render_preview("crush", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def grep_crush(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    out = []
+    con, _ = _crush_session(sid)
+    if con is None:
+        return out
+    try:
+        rows = con.execute(
+            "SELECT parts FROM messages WHERE session_id=?",
+            (sid,)).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        con.close()
+    for (parts,) in rows:
+        t = _crush_msg_text(parts)
+        if t and pat_s.search(t):
+            out.append(_snippet(t, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def store_info_crush():
+    projects = _crush_projects()
+    if not projects:
+        return {"ok": False}
+    count = 0
+    size = 0
+    for _, dd in projects:
+        p = os.path.join(dd, "crush.db")
+        if not os.path.exists(p):
+            continue
+        con = _crush_db(dd)
+        if con is None:
+            continue
+        try:
+            count += con.execute(
+                "SELECT COUNT(*) FROM sessions "
+                "WHERE parent_session_id IS NULL").fetchone()[0]
+        except Exception:
+            pass
+        finally:
+            con.close()
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                size += os.path.getsize(p + suffix)
+            except OSError:
+                pass
+    return {"ok": True, "count": count, "size": size}
+
+
 STORE_INFO = {
     "claude": store_info_claude,
     "codex": store_info_codex,
@@ -2554,17 +2904,21 @@ STORE_INFO = {
     "omp": store_info_omp,
     "vibe": store_info_vibe,
     "hermes": store_info_hermes,
+    "crush": store_info_crush,
+    "pi": store_info_pi,
 }
 
 
 LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
            "opencode": list_opencode, "devin": list_devin,
            "aider": list_aider, "goose": list_goose, "omp": list_omp,
-           "vibe": list_vibe, "hermes": list_hermes}
+           "vibe": list_vibe, "hermes": list_hermes,
+           "crush": list_crush, "pi": list_pi}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
               "opencode": preview_opencode, "devin": preview_devin,
               "aider": preview_aider, "goose": preview_goose, "omp": preview_omp,
-              "vibe": preview_vibe, "hermes": preview_hermes}
+              "vibe": preview_vibe, "hermes": preview_hermes,
+              "crush": preview_crush, "pi": preview_pi}
 
 
 # ---------------- grep (body search) ----------------
@@ -2924,10 +3278,16 @@ def grep_hermes(sid, pats_b, pat_s, query, max_hits=2, regex=False):
     return out
 
 
+def grep_pi(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_jsonl(_pi_file(sid), pats_b, pat_s, _pi_text,
+                       max_hits)
+
+
 GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
             "opencode": grep_opencode, "devin": grep_devin,
             "aider": grep_aider, "goose": grep_goose, "omp": grep_omp,
-            "vibe": grep_vibe, "hermes": grep_hermes}
+            "vibe": grep_vibe, "hermes": grep_hermes,
+            "crush": grep_crush, "pi": grep_pi}
 
 
 def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
@@ -3292,7 +3652,8 @@ _SESSION_LOOKUPS = {"claude": _lookup_claude, "codex": _lookup_codex,
                     "agy": _lookup_agy, "opencode": _lookup_opencode,
                     "devin": _lookup_devin, "aider": _lookup_aider,
                     "goose": _lookup_goose, "omp": _lookup_omp,
-                    "vibe": _lookup_vibe, "hermes": _lookup_hermes}
+                    "vibe": _lookup_vibe, "hermes": _lookup_hermes,
+                    "crush": _lookup_crush, "pi": _lookup_pi}
 
 
 def _confirm(prompt, assume_yes):

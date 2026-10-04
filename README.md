@@ -4,11 +4,11 @@
 
 [日本語版 / Japanese version](README.ja.md)
 
-`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) from a single fzf/JSON interface.
+`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` from a single fzf/JSON interface.
 
 ![ax cross-agent session picker demo](images/demo.gif)
 
-Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all ten, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
+Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all twelve, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
 
@@ -151,6 +151,8 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - omp: `~/.omp/agent/sessions/*/*.jsonl` (256-byte title slot + `type:"session"` header + message entries)
 - vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` from `~/.vibe/config.toml`)
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` respected; schema columns probed per version)
+- crush: `~/.local/share/crush/projects.json` -> each `<data_dir>/crush.db` (read-only; subagent sessions with `parent_session_id` are hidden)
+- pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (first line holds `id`/`cwd`; title from the first user message)
 
 ## Limitations
 

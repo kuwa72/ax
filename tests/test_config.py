@@ -3,6 +3,7 @@
 import importlib.machinery as machinery
 import importlib.util
 import io
+import json
 import os
 import shutil
 import sys
@@ -53,12 +54,30 @@ def copy_fixtures(dst):
         ("omp", ".omp"),
         ("vibe", ".vibe"),
         ("hermes", ".hermes"),
+        ("pi", ".pi"),
+        (os.path.join("crush", "share", "crush"),
+         os.path.join(".local", "share", "crush")),
     ]
     for src, dst_name in mapping:
         s = os.path.join(FIXTURES, src)
         d = os.path.join(dst, dst_name)
         if os.path.isdir(s):
             shutil.copytree(s, d)
+    # crush projects.json data_dirs use a placeholder;
+    # rewrite to the copied location
+    pj = os.path.join(dst, ".local", "share", "crush",
+                        "projects.json")
+    if os.path.exists(pj):
+        with open(pj, encoding="utf-8") as fh:
+            projects = json.load(fh)
+        tmp_crush = os.path.join(dst, ".local", "share",
+                                     "crush")
+        for pr in projects["projects"]:
+            if isinstance(pr.get("data_dir"), str):
+                pr["data_dir"] = pr["data_dir"].replace(
+                    "CRUSH_FIXTURE_ROOT", tmp_crush)
+        with open(pj, "w", encoding="utf-8") as fh:
+            json.dump(projects, fh)
 
 
 class TestConfig(unittest.TestCase):
@@ -120,9 +139,10 @@ class TestConfig(unittest.TestCase):
     def test_no_config_uses_defaults(self):
         mod = load_ax(self.tmp)
         self.assertEqual(
-            mod.ALL_AGENTS,
-            ("claude", "codex", "agy", "opencode", "devin",
-             "aider", "goose", "omp", "vibe", "hermes"),
+            set(mod.AGENTS),
+            {"claude", "codex", "agy", "opencode", "devin",
+             "aider", "goose", "omp", "vibe", "hermes",
+             "crush", "pi"},
         )
         self.assertEqual(mod.AGENTS, mod.ALL_AGENTS)
         self.assertEqual(mod.CONFIG["limits"]["max_sessions"], 300)
@@ -131,7 +151,7 @@ class TestConfig(unittest.TestCase):
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 24)
+        self.assertEqual(len(lines), 28)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7, f"bad TSV line: {line!r}")
@@ -143,12 +163,13 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(
             set(mod.AGENTS),
             {"claude", "codex", "opencode", "devin",
-             "aider", "goose", "omp", "vibe", "hermes"},
+             "aider", "goose", "omp", "vibe", "hermes",
+             "crush", "pi"},
         )
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 22)
+        self.assertEqual(len(lines), 26)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7)
@@ -180,12 +201,14 @@ goose = 1
 omp = 1
 vibe = 1
 hermes = 1
+crush = 1
+pi = 1
 """
         )
         mod = load_ax(self.tmp)
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 10)
+        self.assertEqual(len(lines), 12)
         agents = [l.split("\t")[0] for l in lines]
         self.assertEqual(sorted(agents), sorted(mod.ALL_AGENTS))
 
@@ -260,7 +283,7 @@ disabled = "agy"
         self.assertEqual(mod.CONFIG["providers"]["disabled"], [])
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 24)
+        self.assertEqual(len(out.strip().splitlines()), 28)
 
     def test_unknown_disabled_provider_warns(self):
         self._write_config('[providers]\ndisabled = ["unknown", "agy"]\n')
@@ -294,7 +317,7 @@ disabled = "agy"
         self.assertIn("config read failed", err)
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 24)
+        self.assertEqual(len(out.strip().splitlines()), 28)
 
 
 if __name__ == "__main__":
