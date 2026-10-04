@@ -1,0 +1,5 @@
+{"type": "session", "version": 3, "id": "pi-1", "timestamp": "2026-01-15T10:00:00.000Z", "cwd": "/home/alice/pi-proj"}
+{"type": "model_change", "id": "mm1", "parentId": null, "timestamp": "2026-01-15T10:00:00.100Z", "provider": "commandcode", "modelId": "poolside/laguna-s-2.1-free"}
+{"type": "message", "id": "u1", "parentId": "mm1", "timestamp": "2026-01-15T10:00:01.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "Refactor the pi search"}]}}
+{"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-15T10:00:02.000Z", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "internal thought"}, {"type": "text", "text": "I'll refactor the pi search"}]}}
+{"type": "message", "id": "t1", "parentId": "a1", "timestamp": "2026-01-15T10:00:03.000Z", "message": {"role": "toolResult", "content": [{"type": "text", "text": "ok"}]}}

@@ -50,12 +50,29 @@ class TestAx(unittest.TestCase):
             ("omp", ".omp"),
             ("vibe", ".vibe"),
             ("hermes", ".hermes"),
+            ("pi", ".pi"),
+            (os.path.join("crush", "share", "crush"),
+             os.path.join(".local", "share", "crush")),
         ]
         for src, dst in mapping:
             s = os.path.join(FIXTURES, src)
             d = os.path.join(cls.tmp, dst)
             if os.path.isdir(s):
                 shutil.copytree(s, d)
+        # crush projects.json data_dirs use a placeholder;
+        # rewrite to the copied location
+        pj = os.path.join(cls.tmp, ".local", "share", "crush",
+                          "projects.json")
+        with open(pj, encoding="utf-8") as fh:
+            projects = json.load(fh)
+        tmp_crush = os.path.join(cls.tmp, ".local", "share",
+                                   "crush")
+        for pr in projects["projects"]:
+            if isinstance(pr.get("data_dir"), str):
+                pr["data_dir"] = pr["data_dir"].replace(
+                    "CRUSH_FIXTURE_ROOT", tmp_crush)
+        with open(pj, "w", encoding="utf-8") as fh:
+            json.dump(projects, fh)
         cls.mod = load_ax(cls.tmp)
         cls.aider_ids = {
             os.path.join(cls.tmp, "aiderws", "proj-one",
@@ -114,6 +131,10 @@ class TestAx(unittest.TestCase):
             "vb002",
             "h-1",
             "h-2",
+            "pi-1",
+            "pi-2",
+            "crush-1",
+            "crush-2",
         } | self.aider_ids
         self.assertEqual(ids, expected)
         self.assertNotIn("dev-hidden", ids)
@@ -368,7 +389,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 24)
+        self.assertEqual(len(rows), 28)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])

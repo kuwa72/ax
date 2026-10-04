@@ -680,6 +680,153 @@ def generate_hermes():
     con.close()
 
 
+def generate_pi():
+    base = os.path.join(FIXTURES, "fixtures", "pi", "agent", "sessions")
+    # cwd "/home/alice/pi-proj" sanitized to a dash-wrapped dir name
+    p1 = os.path.join(base, "--home-alice-pi-proj--",
+                      "2026-01-15T10-00-00-000Z_pi-1.jsonl")
+    write_jsonl(
+        p1,
+        [
+            {"type": "session", "version": 3, "id": "pi-1",
+             "timestamp": "2026-01-15T10:00:00.000Z",
+             "cwd": "/home/alice/pi-proj"},
+            {"type": "model_change", "id": "mm1", "parentId": None,
+             "timestamp": "2026-01-15T10:00:00.100Z",
+             "provider": "commandcode",
+             "modelId": "poolside/laguna-s-2.1-free"},
+            {"type": "message", "id": "u1", "parentId": "mm1",
+             "timestamp": "2026-01-15T10:00:01.000Z",
+             "message": {"role": "user",
+                         "content": [{"type": "text",
+                                      "text": "Refactor the pi search"}]}},
+            # thinking parts must not leak into preview/grep
+            {"type": "message", "id": "a1", "parentId": "u1",
+             "timestamp": "2026-01-15T10:00:02.000Z",
+             "message": {"role": "assistant",
+                         "content": [
+                             {"type": "thinking",
+                              "thinking": "internal thought"},
+                             {"type": "text",
+                              "text": "I'll refactor the pi search"}]}},
+            {"type": "message", "id": "t1", "parentId": "a1",
+             "timestamp": "2026-01-15T10:00:03.000Z",
+             "message": {"role": "toolResult",
+                         "content": [{"type": "text", "text": "ok"}]}},
+        ],
+    )
+    p2 = os.path.join(base, "--home-alice-pi-proj2--",
+                      "2026-01-14T09-00-00-000Z_pi-2.jsonl")
+    write_jsonl(
+        p2,
+        [
+            {"type": "session", "version": 3, "id": "pi-2",
+             "timestamp": "2026-01-14T09:00:00.000Z",
+             "cwd": "/home/alice/pi-proj2"},
+            {"type": "message", "id": "u2", "parentId": None,
+             "timestamp": "2026-01-14T09:00:01.000Z",
+             "message": {"role": "user",
+                         "content": [{"type": "text",
+                                      "text": "Plan the migration"}]}},
+            {"type": "message", "id": "a2", "parentId": "u2",
+             "timestamp": "2026-01-14T09:00:02.000Z",
+             "message": {"role": "assistant",
+                         "content": [{"type": "text",
+                                      "text":
+                                          "Migration plan: add an index"}]}},
+        ],
+    )
+    os.utime(p1, (1700000000, 1700000000))
+    os.utime(p2, (1700000010, 1700000010))
+
+
+def _make_crush_db(p):
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    if os.path.exists(p):
+        os.remove(p)
+    con = sqlite3.connect(p)
+    con.execute(
+        "CREATE TABLE sessions (id TEXT, parent_session_id TEXT, "
+        "title TEXT, message_count INTEGER, prompt_tokens INTEGER, "
+        "completion_tokens INTEGER, cost REAL, updated_at INTEGER, "
+        "created_at INTEGER, summary_message_id TEXT, todos TEXT, "
+        "channel TEXT)")
+    con.execute(
+        "CREATE TABLE messages (id TEXT, session_id TEXT, role TEXT, "
+        "parts TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, "
+        "finished_at TEXT, provider TEXT, is_summary_message INTEGER, "
+        "prism_model_id TEXT, prism_model_name TEXT, "
+        "prism_hypercredit_savings REAL, prism_dollar_savings REAL)")
+    return con
+
+
+def generate_crush():
+    base = os.path.join(FIXTURES, "fixtures", "crush", "share", "crush")
+    os.makedirs(base, exist_ok=True)
+    # data_dir uses a placeholder; tests rewrite it to the
+    # copied location under the temporary HOME (the fixture
+    # must not bake in the generating machine's paths)
+    with open(os.path.join(base, "projects.json"), "w") as f:
+        json.dump({"projects": [
+            {"path": "/home/alice/crush-proj",
+             "data_dir": "CRUSH_FIXTURE_ROOT/proj/.crush",
+             "last_accessed": "2026-01-15T10:00:00Z"},
+            {"path": "/home/alice/crush-proj2",
+             "data_dir": "CRUSH_FIXTURE_ROOT/proj2/.crush",
+             "last_accessed": "2026-01-14T09:00:00Z"},
+        ]}, f)
+    con = _make_crush_db(os.path.join(base, "proj", ".crush", "crush.db"))
+    con.executemany(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("crush-1", None, "crush test one", 2, 0, 0, 0.0,
+             1700000000, 1700000000, None, None, None),
+            # subagent session: hidden from listings
+            ("crush-child", "crush-1", "child", 1, 0, 0, 0.0,
+             1700000100, 1700000100, None, None, None),
+        ])
+    con.executemany(
+        "INSERT INTO messages VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("m1", "crush-1", "user",
+             json.dumps([{"type": "text",
+                          "data": {"text": "Plan the migration"}}]),
+             "", 1700000000, 1700000000, None, None, 0,
+             None, None, None, None),
+            ("m2", "crush-1", "assistant",
+             json.dumps([{"type": "text",
+                          "data": {"text": "I will plan the migration"}}]),
+             "", 1700000010, 1700000010, None, None, 0,
+             None, None, None, None),
+            ("mc1", "crush-child", "user",
+             json.dumps([{"type": "text", "data": {"text": "child only"}}]),
+             "", 1700000100, 1700000100, None, None, 0,
+             None, None, None, None),
+        ])
+    con.commit()
+    con.close()
+    con = _make_crush_db(os.path.join(base, "proj2", ".crush", "crush.db"))
+    con.executemany(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("crush-2", None, "crush test two", 1, 0, 0, 0.0,
+             1700000020, 1700000020, None, None, None),
+        ])
+    con.executemany(
+        "INSERT INTO messages VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("m3", "crush-2", "user",
+             json.dumps([{"type": "text",
+                          "data": {"text": "Check the lexer"}}]),
+             "", 1700000020, 1700000020, None, None, 0,
+             None, None, None, None),
+        ])
+    con.commit()
+    con.close()
+
+
 if __name__ == "__main__":
     generate_claude()
     generate_codex()
@@ -691,4 +838,6 @@ if __name__ == "__main__":
     generate_omp()
     generate_vibe()
     generate_hermes()
+    generate_pi()
+    generate_crush()
     print("fixtures generated in", os.path.join(FIXTURES, "fixtures"))

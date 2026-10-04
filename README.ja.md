@@ -1,17 +1,18 @@
-# ax — 10エージェント横断セッションピッカー
+# ax — 12エージェント横断セッションピッカー
 
 [![CI](https://github.com/kuwa72/ax/actions/workflows/ci.yml/badge.svg)](https://github.com/kuwa72/ax/actions)
 
 [English version](README.md)
 
 `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` /
-`aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) の
+`aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) /
+`crush` / `pi` の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
 ![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
 
 既存ツール (ccresume, ccsession, agf, cass, CCHV) はいずれも
-10種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
+12種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
 
 ## 使い方
 
@@ -113,6 +114,8 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 | omp | `omp --resume <id>` |
 | vibe | `vibe --resume <id>` |
 | hermes | `hermes --resume <id>` |
+| crush | `crush --session <id>` |
+| pi | `pi --session <id>` |
 
 ## 削除・リネーム
 
@@ -124,7 +127,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
     ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
   - opencode → `opencode session delete <id>` (子セッションも削除)
-  - claude / agy / aider / omp / vibe / hermes は未対応: `not supported` で終了コード非0。
+  - claude / agy / aider / omp / vibe / hermes / crush / pi は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
@@ -165,9 +168,12 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - omp: `~/.omp/agent/sessions/*/*.jsonl` (256B title slot + `type:"session"` ヘッダ + message エントリ)
 - vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` は `~/.vibe/config.toml` を参照)
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` 優先。列はバージョン差を吸収するため PRAGMA で検出)
+- crush: `~/.local/share/crush/projects.json` → 各 `<data_dir>/crush.db` (read-only。`parent_session_id` がある子セッションは非表示)
+- pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (先頭行に `id`/`cwd`。タイトルは最初の user メッセージ)
 
 ## 制限
 
-- 本文検索は部分一致のみ (セマンティック検索・常駐インデックスはスコープ外)。
-  JSONL は mmap で事前判定、opencode.db は `LIKE … LIMIT` で SQLite 側スキャン
+- 本文検索は Unicode 大文字小文字無視の部分一致、または `--regex` での Python 正規表現
+  (セマンティック検索・常駐インデックスはスコープ外)。
+  JSONL は mmap で事前判定、SQLite 系は `LIKE … LIMIT` で側スキャン (正規表現モードはセッション全行を走査)
 - 1プロバイダ異常時は stderr 警告 + 他は継続

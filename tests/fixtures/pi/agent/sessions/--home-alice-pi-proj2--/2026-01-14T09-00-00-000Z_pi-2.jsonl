@@ -1,0 +1,3 @@
+{"type": "session", "version": 3, "id": "pi-2", "timestamp": "2026-01-14T09:00:00.000Z", "cwd": "/home/alice/pi-proj2"}
+{"type": "message", "id": "u2", "parentId": null, "timestamp": "2026-01-14T09:00:01.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "Plan the migration"}]}}
+{"type": "message", "id": "a2", "parentId": "u2", "timestamp": "2026-01-14T09:00:02.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Migration plan: add an index"}]}}
