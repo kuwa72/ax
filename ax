@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ax - cross-agent session picker for claude / codex / agy / opencode / devin /
-aider / goose / omp / vibe / hermes / crush / pi.
+aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc.
 
 Usage:
     ax                      list -> fzf -> resume (in original cwd)
@@ -20,6 +20,7 @@ Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
 """
 import calendar
+import hashlib
 import json
 import mmap
 import os
@@ -37,7 +38,7 @@ SELF = os.path.abspath(sys.argv[0])
 
 ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
               "aider", "goose", "omp", "vibe", "hermes",
-              "crush", "pi")
+              "crush", "pi", "gemini", "cmdc")
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
@@ -61,6 +62,8 @@ PREVIEW_DEFAULTS = {
     "hermes": 30,
     "crush": 30,
     "pi": 30,
+    "gemini": 30,
+    "cmdc": 30,
 }
 
 
@@ -361,6 +364,8 @@ RESUME_CMD = {
     "hermes": lambda i: (["hermes", "--resume", i]),
     "crush": lambda i: (["crush", "--session", i]),
     "pi": lambda i: (["pi", "--session", i]),
+    "gemini": lambda i: (["gemini", "--resume", i]),
+    "cmdc": lambda i: (["cmdc", "--session", i]),
 }
 
 
@@ -2694,6 +2699,355 @@ def store_info_pi():
     return {"ok": True, "count": len(files), "size": size}
 
 
+# ---------------- gemini ----------------
+def _gemini_tmp():
+    return os.path.join(HOME, ".gemini", "tmp")
+
+
+def _gemini_session_files():
+    """~/.gemini/tmp/<sha256-of-cwd>/chats/session-*.json"""
+    root = _gemini_tmp()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for h in os.listdir(root):
+            cd = os.path.join(root, h, "chats")
+            if not os.path.isdir(cd):
+                continue
+            for fn in sorted(os.listdir(cd)):
+                if fn.startswith("session-") and fn.endswith(".json"):
+                    out.append(os.path.join(cd, fn))
+    except OSError:
+        pass
+    return out
+
+
+_GEMINI_PRUNE_DIRS = {".git", "node_modules", "__pycache__", ".venv",
+                      "venv", ".tox", ".mypy_cache"}
+
+
+def _gemini_cwd_candidates():
+    """Dirs a gemini session plausibly ran in: HOME, cwd, HOME's children
+    and the whole ghq tree (bounded depth, heavy dirs pruned)."""
+    cands = [HOME, os.getcwd()]
+    ghq = os.path.join(HOME, "ghq")
+    for root, maxd in ((HOME, 1), (ghq, 6)):
+        if not os.path.isdir(root):
+            continue
+        base = root.rstrip(os.sep).count(os.sep)
+        for dp, dns, _fns in os.walk(root):
+            cands.append(dp)
+            if dp.rstrip(os.sep).count(os.sep) - base >= maxd:
+                dns[:] = []
+            else:
+                dns[:] = [d for d in dns if d not in _GEMINI_PRUNE_DIRS]
+    return cands
+
+
+def _gemini_resolve_cwds(hashes):
+    """{projectHash: dir} — gemini names the project dir sha256(cwd), so the
+    only way back to the path is hashing candidates until they match."""
+    need = set(hashes)
+    out = {}
+    for p in _gemini_cwd_candidates():
+        h = hashlib.sha256(p.encode()).hexdigest()
+        if h in need:
+            out[h] = p
+            need.discard(h)
+            if not need:
+                break
+    return out
+
+
+def _gemini_msg_text(m):
+    if not isinstance(m, dict):
+        return ""
+    c = m.get("content")
+    return c if isinstance(c, str) else _text_blocks(c)
+
+
+def _gemini_row(path):
+    try:
+        with open(path, errors="replace") as fh:
+            d = json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(d, dict):
+        return None
+    sid = d.get("sessionId")
+    if not isinstance(sid, str) or not sid:
+        sid = os.path.basename(path)[len("session-"):-len(".json")]
+    epoch = _epoch_from_ts(d.get("lastUpdated"), utc=True)
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            epoch = 0
+    title = "(untitled)"
+    for m in d.get("messages") or []:
+        if isinstance(m, dict) and m.get("type") == "user":
+            t = _gemini_msg_text(m)
+            if t:
+                title = clean_title(t) or title
+                break
+    h = d.get("projectHash")
+    if not isinstance(h, str) or not h:
+        h = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    return {"agent": "gemini", "id": sid, "epoch": epoch,
+            "cwd": "?", "title": title, "_hash": h}
+
+
+def _gemini_file(sid):
+    """Path of the newest file for sid — gemini keeps saving a session to
+    new session-*.json files as it grows, so several files share one
+    sessionId and only the latest should be read."""
+    files = _gemini_session_files()
+    cands = [p for p in files if sid in os.path.basename(p)]
+    if not cands:
+        for p in files:
+            try:
+                with open(p, errors="replace") as fh:
+                    d = json.load(fh)
+                if isinstance(d, dict) and \
+                        str(d.get("sessionId", "")).startswith(sid):
+                    cands.append(p)
+            except Exception:
+                continue
+    if not cands:
+        return None
+    def _mt(p):
+        try:
+            return os.path.getmtime(p)
+        except OSError:
+            return 0
+    return max(cands, key=_mt)
+
+
+def _lookup_gemini(sid):
+    p = _gemini_file(sid)
+    if not p:
+        return None
+    r = _gemini_row(p)
+    if not r:
+        return None
+    h = r.pop("_hash")
+    r["cwd"] = _gemini_resolve_cwds({h}).get(h, "?")
+    return r
+
+
+def list_gemini(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = {}
+    for p in _gemini_session_files():
+        r = _gemini_row(p)
+        if not r:
+            continue
+        prev = rows.get(r["id"])
+        if prev is None or r["epoch"] > prev["epoch"]:
+            rows[r["id"]] = r
+    rows = list(rows.values())
+    m = _gemini_resolve_cwds({r["_hash"] for r in rows})
+    for r in rows:
+        r["cwd"] = m.get(r.pop("_hash"), "?")
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_gemini(sid, n=None, color=None):
+    n = _preview_lines("gemini", n)
+    p = _gemini_file(sid)
+    if not p:
+        return f"gemini session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            d = json.load(fh)
+        for m in d.get("messages") or []:
+            if not isinstance(m, dict):
+                continue
+            t = m.get("type")
+            if t not in ("user", "gemini"):
+                continue
+            txt = _gemini_msg_text(m)
+            if txt:
+                turns.append(("user" if t == "user" else "assistant", txt))
+    except Exception:
+        pass
+    resume = f"resume: gemini --resume {sid}"
+    return render_preview("gemini", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_gemini():
+    files = _gemini_session_files()
+    if not files:
+        return {"ok": False}
+    ids, size = set(), 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+            with open(p, errors="replace") as fh:
+                d = json.load(fh)
+            ids.add(d.get("sessionId") if isinstance(d, dict)
+                    and d.get("sessionId") else p)
+        except Exception:
+            ids.add(p)
+    return {"ok": True, "count": len(ids), "size": size}
+
+
+# ---------------- cmdc (command-code) ----------------
+_CMDC_SESSION_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{12}\.jsonl$", re.IGNORECASE)
+
+
+def _cmdc_root():
+    return os.path.join(HOME, ".commandcode", "projects")
+
+
+def _cmdc_session_files():
+    """projects/<sanitized-cwd>/<uuid>.jsonl — checkpoints/meta aux files
+    are filtered out by the uuid filename regex."""
+    root = _cmdc_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for name in os.listdir(root):
+            d = os.path.join(root, name)
+            if not os.path.isdir(d):
+                continue
+            for fn in sorted(os.listdir(d)):
+                if _CMDC_SESSION_RE.match(fn):
+                    out.append(os.path.join(d, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _cmdc_meta(path):
+    """First-line session metadata (id / timestamp / cwd)."""
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.loads(fh.readline())
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cmdc_text(o):
+    if o.get("type") != "message":
+        return ""
+    msg = o.get("message")
+    if not isinstance(msg, dict) or \
+            msg.get("role") not in ("user", "assistant"):
+        return ""
+    return _text_blocks(msg.get("content"))
+
+
+def _cmdc_first_user(path):
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict) or \
+                        o.get("type") != "message":
+                    continue
+                msg = o.get("message")
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    t = _text_blocks(msg.get("content"))
+                    if t:
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def _cmdc_sid(meta, path):
+    sid = meta.get("id")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(path)[:-len(".jsonl")]
+
+
+def _cmdc_row(path):
+    meta = _cmdc_meta(path)
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("timestamp"), utc=True)
+    title = clean_title(_cmdc_first_user(path)) or "(untitled)"
+    return {"agent": "cmdc", "id": _cmdc_sid(meta, path), "epoch": epoch,
+            "cwd": meta.get("cwd") or "?", "title": title}
+
+
+def _cmdc_file(sid):
+    """Unique-prefix aware: `cmdc --session` itself accepts a unique id
+    prefix, so ax preview/grep/resume do too."""
+    files = _cmdc_session_files()
+    for p in files:
+        if os.path.basename(p).startswith(sid):
+            return p
+    for p in files:
+        if str(_cmdc_meta(p).get("id", "")).startswith(sid):
+            return p
+    return None
+
+
+def _lookup_cmdc(sid):
+    p = _cmdc_file(sid)
+    if not p:
+        return None
+    row = _cmdc_row(p)
+    return row
+
+
+def list_cmdc(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_cmdc_row(p) for p in _cmdc_session_files()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_cmdc(sid, n=None, color=None):
+    n = _preview_lines("cmdc", n)
+    p = _cmdc_file(sid)
+    if not p:
+        return f"cmdc session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _cmdc_text(o)
+                    if t:
+                        turns.append((o["message"]["role"], t))
+    except OSError:
+        pass
+    resume = f"resume: cmdc --session {sid}"
+    return render_preview("cmdc", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_cmdc():
+    files = _cmdc_session_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
 # ---------------- crush ----------------
 def _crush_share():
     return os.path.join(HOME, ".local", "share", "crush")
@@ -2906,6 +3260,8 @@ STORE_INFO = {
     "hermes": store_info_hermes,
     "crush": store_info_crush,
     "pi": store_info_pi,
+    "gemini": store_info_gemini,
+    "cmdc": store_info_cmdc,
 }
 
 
@@ -2913,12 +3269,14 @@ LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
            "opencode": list_opencode, "devin": list_devin,
            "aider": list_aider, "goose": list_goose, "omp": list_omp,
            "vibe": list_vibe, "hermes": list_hermes,
-           "crush": list_crush, "pi": list_pi}
+           "crush": list_crush, "pi": list_pi,
+           "gemini": list_gemini, "cmdc": list_cmdc}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
               "opencode": preview_opencode, "devin": preview_devin,
               "aider": preview_aider, "goose": preview_goose, "omp": preview_omp,
               "vibe": preview_vibe, "hermes": preview_hermes,
-              "crush": preview_crush, "pi": preview_pi}
+              "crush": preview_crush, "pi": preview_pi,
+              "gemini": preview_gemini, "cmdc": preview_cmdc}
 
 
 # ---------------- grep (body search) ----------------
@@ -3283,11 +3641,40 @@ def grep_pi(sid, pats_b, pat_s, query, max_hits=2, regex=False):
                        max_hits)
 
 
+def grep_gemini(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    """gemini sessions are a single JSON doc, not JSONL."""
+    out = []
+    p = _gemini_file(sid)
+    if not p or not _file_might_contain(p, pats_b):
+        return out
+    try:
+        with open(p, errors="replace") as fh:
+            d = json.load(fh)
+    except Exception:
+        return out
+    for m in d.get("messages") or []:
+        if not isinstance(m, dict) or \
+                m.get("type") not in ("user", "gemini"):
+            continue
+        t = _gemini_msg_text(m)
+        if t and pat_s.search(t):
+            out.append(_snippet(t, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def grep_cmdc(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_jsonl(_cmdc_file(sid), pats_b, pat_s, _cmdc_text,
+                       max_hits)
+
+
 GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
             "opencode": grep_opencode, "devin": grep_devin,
             "aider": grep_aider, "goose": grep_goose, "omp": grep_omp,
             "vibe": grep_vibe, "hermes": grep_hermes,
-            "crush": grep_crush, "pi": grep_pi}
+            "crush": grep_crush, "pi": grep_pi,
+            "gemini": grep_gemini, "cmdc": grep_cmdc}
 
 
 def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
@@ -3649,6 +4036,7 @@ def _find_session(agent, sid):
 
 
 _SESSION_LOOKUPS = {"claude": _lookup_claude, "codex": _lookup_codex,
+                    "gemini": _lookup_gemini, "cmdc": _lookup_cmdc,
                     "agy": _lookup_agy, "opencode": _lookup_opencode,
                     "devin": _lookup_devin, "aider": _lookup_aider,
                     "goose": _lookup_goose, "omp": _lookup_omp,

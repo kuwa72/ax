@@ -51,6 +51,7 @@ class TestAx(unittest.TestCase):
             ("vibe", ".vibe"),
             ("hermes", ".hermes"),
             ("pi", ".pi"),
+            ("commandcode", ".commandcode"),
             (os.path.join("crush", "share", "crush"),
              os.path.join(".local", "share", "crush")),
         ]
@@ -135,6 +136,10 @@ class TestAx(unittest.TestCase):
             "pi-2",
             "crush-1",
             "crush-2",
+            "gem-1",
+            "gem-2",
+            "cmdc-1",
+            "cmdc-2",
         } | self.aider_ids
         self.assertEqual(ids, expected)
         self.assertNotIn("dev-hidden", ids)
@@ -389,7 +394,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 28)
+        self.assertEqual(len(rows), 32)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])

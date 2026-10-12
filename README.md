@@ -4,11 +4,11 @@
 
 [日本語版 / Japanese version](README.ja.md)
 
-`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` from a single fzf/JSON interface.
+`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` / `gemini` / `cmdc` (command-code) from a single fzf/JSON interface.
 
 ![ax cross-agent session picker demo](images/demo.gif)
 
-Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all twelve, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
+Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all fourteen, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
 
@@ -16,7 +16,7 @@ Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all twelve, e
 curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
 ```
 
-Installs the single-file `ax` script to `~/.local/bin/ax`. Requirements: `python3` and `fzf >= 0.44`. Env overrides: `AX_BIN_DIR` (install dir), `AX_REF` (git ref, default `main`). To pin a specific version: `curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | AX_REF=v0.1.0 sh`
+Installs the single-file `ax` script to `~/.local/bin/ax`. Requirements: `python3` and `fzf >= 0.44`. Env overrides: `AX_BIN_DIR` (install dir), `AX_REF` (git ref, default `main`). To pin a specific version: `curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | AX_REF=v0.2.0 sh`
 
 Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
@@ -103,6 +103,10 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
 | omp | `omp --resume <id>` |
 | vibe | `vibe --resume <id>` |
 | hermes | `hermes --resume <id>` |
+| crush | `crush --session <id>` |
+| pi | `pi --session <id>` |
+| gemini | `gemini --resume <id>` |
+| cmdc | `cmdc --session <id>` (unique id prefixes ok) |
 
 ## Delete and rename
 
@@ -113,7 +117,7 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
   - goose → `goose session remove --session-id <id>` (run through a PTY; ax answers
     goose's confirm dialog only after ax's own confirmation passed)
   - opencode → `opencode session delete <id>` (also removes child sessions)
-  - claude / agy / aider / omp / vibe / hermes are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
 - `ax rename` does not modify provider stores. It saves an ax-local display-name alias in `~/.local/share/ax/titles.json`. Use `--name ""` to clear. Works for all providers and only affects the `title` column in listings.
 
 ## Using from an agent (Agent Skill)
@@ -153,6 +157,8 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` respected; schema columns probed per version)
 - crush: `~/.local/share/crush/projects.json` -> each `<data_dir>/crush.db` (read-only; subagent sessions with `parent_session_id` are hidden)
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (first line holds `id`/`cwd`; title from the first user message)
+- gemini: `~/.gemini/tmp/<sha256-of-cwd>/chats/session-*.json` (multiple files per session are deduped; cwd is recovered by hashing candidate project dirs, `?` when unresolved)
+- cmdc: `~/.commandcode/projects/<sanitized-cwd>/<uuid>.jsonl` (first `type:"session"` line holds `id`/`cwd`; `*.checkpoints.jsonl`/`*.meta.json` aux files ignored)
 
 ## Limitations
 

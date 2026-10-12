@@ -1,0 +1,6 @@
+{"type": "session", "version": 3, "id": "cmdc-1", "timestamp": "2026-01-15T10:00:00.000Z", "cwd": "/home/alice/cmdc-proj"}
+{"type": "message", "id": "u1", "parentId": null, "timestamp": "2026-01-15T10:00:01.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "Refactor the cmdc search"}]}}
+{"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-15T10:00:02.000Z", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "internal thought"}, {"type": "text", "text": "I'll refactor the cmdc search"}]}}
+{"type": "message", "id": "u2", "parentId": "a1", "timestamp": "2026-01-15T10:00:03.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "content": [{"type": "text", "text": "should not leak"}]}]}}
+{"type": "compaction", "id": "c1", "parentId": "u2", "timestamp": "2026-01-15T10:00:04.000Z", "summary": "compaction summary must not match grep"}
+{"type": "message", "id": "u3", "parentId": "c1", "timestamp": "2026-01-15T10:00:05.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "add validation"}]}}
