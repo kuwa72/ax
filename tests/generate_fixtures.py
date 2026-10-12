@@ -20,6 +20,12 @@ def touch_epoch(path, epoch):
     os.utime(path, (epoch, epoch))
 
 
+def write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(obj, f)
+
+
 def write_text(path, text, epoch=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
@@ -827,6 +833,124 @@ def generate_crush():
     con.close()
 
 
+def generate_gemini():
+    base = os.path.join(FIXTURES, "fixtures", "gemini", "tmp")
+    # HASH_GEM_PROJ is renamed by the test to sha256(tmp-home/gem-proj):
+    # gemini names the project dir after the one-way hash of the cwd, so
+    # ax must resolve it by hashing candidate project dirs.
+    s1 = os.path.join(base, "HASH_GEM_PROJ", "chats",
+                      "session-2026-01-15T10-00-gem1.json")
+    write_json(s1, {
+        "sessionId": "gem-1",
+        "projectHash": "HASH_GEM_PROJ",
+        "startTime": "2026-01-15T10:00:00.000Z",
+        "lastUpdated": "2026-01-15T10:05:00.000Z",
+        "messages": [
+            {"id": "u1", "timestamp": "2026-01-15T10:00:01.000Z",
+             "type": "user", "content": "Refactor the gemini search"},
+            {"id": "a1", "timestamp": "2026-01-15T10:00:02.000Z",
+             "type": "gemini",
+             "content": "I'll refactor the gemini search"},
+            # non user/gemini record types are skipped in preview/grep
+            {"id": "i1", "timestamp": "2026-01-15T10:00:03.000Z",
+             "type": "info", "content": "internal notice: do not show"},
+            {"id": "u2", "timestamp": "2026-01-15T10:00:04.000Z",
+             "type": "user", "content": "add validation"},
+        ],
+    })
+    # stale checkpoint of the same sessionId must be deduped (newest wins)
+    s1stale = os.path.join(base, "HASH_GEM_PROJ", "chats",
+                           "session-2026-01-15T09-00-gem1.json")
+    write_json(s1stale, {
+        "sessionId": "gem-1",
+        "projectHash": "HASH_GEM_PROJ",
+        "startTime": "2026-01-15T09:00:00.000Z",
+        "lastUpdated": "2026-01-15T09:30:00.000Z",
+        "messages": [
+            {"id": "u0", "timestamp": "2026-01-15T09:00:01.000Z",
+             "type": "user", "content": "stale title must not win"},
+        ],
+    })
+    # unresolvable hash -> cwd must fall back to "?"
+    s2 = os.path.join(base, "f" * 64, "chats",
+                      "session-2026-01-14T09-00-gem2.json")
+    write_json(s2, {
+        "sessionId": "gem-2",
+        "projectHash": "f" * 64,
+        "startTime": "2026-01-14T09:00:00.000Z",
+        "lastUpdated": "2026-01-14T09:05:00.000Z",
+        "messages": [
+            {"id": "u3", "timestamp": "2026-01-14T09:00:01.000Z",
+             "type": "user", "content": "Plan the migration"},
+            {"id": "a3", "timestamp": "2026-01-14T09:00:02.000Z",
+             "type": "gemini", "content": "Drafting the migration plan"},
+        ],
+    })
+
+
+def generate_cmdc():
+    base = os.path.join(FIXTURES, "fixtures", "commandcode", "projects")
+    sid1 = "aaaabbbb-0000-0000-0000-0000000000c1"
+    d1 = os.path.join(base, "home-alice-cmdc-proj")
+    write_jsonl(os.path.join(d1, sid1 + ".jsonl"), [
+        {"type": "session", "version": 3, "id": "cmdc-1",
+         "timestamp": "2026-01-15T10:00:00.000Z",
+         "cwd": "/home/alice/cmdc-proj"},
+        {"type": "message", "id": "u1", "parentId": None,
+         "timestamp": "2026-01-15T10:00:01.000Z",
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Refactor the cmdc search"}]}},
+        # thinking blocks must not leak into preview/grep
+        {"type": "message", "id": "a1", "parentId": "u1",
+         "timestamp": "2026-01-15T10:00:02.000Z",
+         "message": {"role": "assistant",
+                     "content": [{"type": "thinking",
+                                  "thinking": "internal thought"},
+                                 {"type": "text",
+                                  "text": "I'll refactor the cmdc search"}]}},
+        # tool_result payloads under role "user" are not user turns
+        {"type": "message", "id": "u2", "parentId": "a1",
+         "timestamp": "2026-01-15T10:00:03.000Z",
+         "message": {"role": "user",
+                     "content": [{"type": "tool_result",
+                                  "content": [{"type": "text",
+                                               "text": "should not leak"}]}]}},
+        {"type": "compaction", "id": "c1", "parentId": "u2",
+         "timestamp": "2026-01-15T10:00:04.000Z",
+         "summary": "compaction summary must not match grep"},
+        {"type": "message", "id": "u3", "parentId": "c1",
+         "timestamp": "2026-01-15T10:00:05.000Z",
+         "message": {"role": "user",
+                     "content": [{"type": "text", "text": "add validation"}]}},
+    ])
+    write_jsonl(os.path.join(d1, sid1 + ".checkpoints.jsonl"), [
+        {"id": "cp1", "messageId": "u1", "turnNumber": 1,
+         "createdAt": "2026-01-15T10:00:01.000Z",
+         "prompt": "Refactor the cmdc search"},
+    ])
+    # .meta.json must not be collected as a transcript
+    write_json(os.path.join(d1, sid1 + ".meta.json"),
+               {"sessionId": "cmdc-1"})
+    sid2 = "bbbbcccc-0000-0000-0000-0000000000c2"
+    d2 = os.path.join(base, "home-alice-cmdc-proj2")
+    write_jsonl(os.path.join(d2, sid2 + ".jsonl"), [
+        {"type": "session", "version": 3, "id": "cmdc-2",
+         "timestamp": "2026-01-14T09:00:00.000Z",
+         "cwd": "/home/alice/cmdc-proj2"},
+        {"type": "message", "id": "u1", "parentId": None,
+         "timestamp": "2026-01-14T09:00:01.000Z",
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Plan the migration"}]}},
+        {"type": "message", "id": "a1", "parentId": "u1",
+         "timestamp": "2026-01-14T09:00:02.000Z",
+         "message": {"role": "assistant",
+                     "content": [{"type": "text",
+                                  "text": "Drafting the migration plan"}]}},
+    ])
+
+
 if __name__ == "__main__":
     generate_claude()
     generate_codex()
@@ -840,4 +964,6 @@ if __name__ == "__main__":
     generate_hermes()
     generate_pi()
     generate_crush()
+    generate_gemini()
+    generate_cmdc()
     print("fixtures generated in", os.path.join(FIXTURES, "fixtures"))

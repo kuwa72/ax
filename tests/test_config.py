@@ -55,6 +55,7 @@ def copy_fixtures(dst):
         ("vibe", ".vibe"),
         ("hermes", ".hermes"),
         ("pi", ".pi"),
+            ("commandcode", ".commandcode"),
         (os.path.join("crush", "share", "crush"),
          os.path.join(".local", "share", "crush")),
     ]
@@ -142,7 +143,7 @@ class TestConfig(unittest.TestCase):
             set(mod.AGENTS),
             {"claude", "codex", "agy", "opencode", "devin",
              "aider", "goose", "omp", "vibe", "hermes",
-             "crush", "pi"},
+             "crush", "pi", "gemini", "cmdc"},
         )
         self.assertEqual(mod.AGENTS, mod.ALL_AGENTS)
         self.assertEqual(mod.CONFIG["limits"]["max_sessions"], 300)
@@ -151,7 +152,7 @@ class TestConfig(unittest.TestCase):
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 28)
+        self.assertEqual(len(lines), 32)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7, f"bad TSV line: {line!r}")
@@ -164,12 +165,12 @@ class TestConfig(unittest.TestCase):
             set(mod.AGENTS),
             {"claude", "codex", "opencode", "devin",
              "aider", "goose", "omp", "vibe", "hermes",
-             "crush", "pi"},
+             "crush", "pi", "gemini", "cmdc"},
         )
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 26)
+        self.assertEqual(len(lines), 30)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7)
@@ -203,12 +204,14 @@ vibe = 1
 hermes = 1
 crush = 1
 pi = 1
+gemini = 1
+cmdc = 1
 """
         )
         mod = load_ax(self.tmp)
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 12)
+        self.assertEqual(len(lines), 14)
         agents = [l.split("\t")[0] for l in lines]
         self.assertEqual(sorted(agents), sorted(mod.ALL_AGENTS))
 
@@ -283,7 +286,7 @@ disabled = "agy"
         self.assertEqual(mod.CONFIG["providers"]["disabled"], [])
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 28)
+        self.assertEqual(len(out.strip().splitlines()), 32)
 
     def test_unknown_disabled_provider_warns(self):
         self._write_config('[providers]\ndisabled = ["unknown", "agy"]\n')
@@ -317,7 +320,7 @@ disabled = "agy"
         self.assertIn("config read failed", err)
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 28)
+        self.assertEqual(len(out.strip().splitlines()), 32)
 
 
 if __name__ == "__main__":

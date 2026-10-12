@@ -6,7 +6,7 @@
 
 `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` /
 `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) /
-`crush` / `pi` の
+`crush` / `pi` / `gemini` / `cmdc` (command-code) の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
 ![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
@@ -116,6 +116,8 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 | hermes | `hermes --resume <id>` |
 | crush | `crush --session <id>` |
 | pi | `pi --session <id>` |
+| gemini | `gemini --resume <id>` |
+| cmdc | `cmdc --session <id>` (先頭一致の短縮IDも可) |
 
 ## 削除・リネーム
 
@@ -127,7 +129,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
     ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
   - opencode → `opencode session delete <id>` (子セッションも削除)
-  - claude / agy / aider / omp / vibe / hermes / crush / pi は未対応: `not supported` で終了コード非0。
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
@@ -170,6 +172,8 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` 優先。列はバージョン差を吸収するため PRAGMA で検出)
 - crush: `~/.local/share/crush/projects.json` → 各 `<data_dir>/crush.db` (read-only。`parent_session_id` がある子セッションは非表示)
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (先頭行に `id`/`cwd`。タイトルは最初の user メッセージ)
+- gemini: `~/.gemini/tmp/<sha256-of-cwd>/chats/session-*.json` (同一 sessionId の複数ファイルは最新のみ。cwd は候補ディレクトリのハッシュで逆引き、解決不能時は `?`)
+- cmdc: `~/.commandcode/projects/<sanitized-cwd>/<uuid>.jsonl` (先頭 `type:"session"` 行に `id`/`cwd`。`*.checkpoints.jsonl`/`*.meta.json` は除外)
 
 ## 制限
 
