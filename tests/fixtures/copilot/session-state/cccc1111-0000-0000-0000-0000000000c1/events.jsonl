@@ -1,0 +1,5 @@
+{"type": "session.start", "data": {"sessionId": "copilot-1", "startTime": "2026-01-15T10:00:00.000Z", "context": {"cwd": "/home/alice/copilot-proj"}}}
+{"type": "session.model_change", "data": {"newModel": "should not leak"}}
+{"type": "user.message", "data": {"content": "Refactor the copilot search", "transformedContent": "<current_datetime>2026-01-15</current_datetime>\nRefactor the copilot search"}}
+{"type": "assistant.message", "data": {"content": "I'll refactor the copilot search"}}
+{"type": "system.message", "data": {"content": "system noise should not leak"}}

@@ -38,7 +38,8 @@ SELF = os.path.abspath(sys.argv[0])
 
 ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
               "aider", "goose", "omp", "vibe", "hermes",
-              "crush", "pi", "gemini", "cmdc")
+              "crush", "pi", "gemini", "cmdc",
+              "qwen", "droid", "grok", "kimi", "copilot")
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
@@ -64,6 +65,11 @@ PREVIEW_DEFAULTS = {
     "pi": 30,
     "gemini": 30,
     "cmdc": 30,
+    "qwen": 30,
+    "droid": 30,
+    "grok": 30,
+    "kimi": 30,
+    "copilot": 30,
 }
 
 
@@ -366,6 +372,11 @@ RESUME_CMD = {
     "pi": lambda i: (["pi", "--session", i]),
     "gemini": lambda i: (["gemini", "--resume", i]),
     "cmdc": lambda i: (["cmdc", "--session", i]),
+    "qwen": lambda i: (["qwen", "--resume", i]),
+    "droid": lambda i: (["droid", "resume", i]),
+    "grok": lambda i: (["grok", "--resume", i]),
+    "kimi": lambda i: (["kimi", "--session", i]),
+    "copilot": lambda i: (["copilot", "--resume", i]),
 }
 
 
@@ -3048,6 +3059,796 @@ def store_info_cmdc():
     return {"ok": True, "count": len(files), "size": size}
 
 
+# ---------------- qwen ----------------
+def _qwen_root():
+    return os.path.join(HOME, ".qwen", "projects")
+
+
+def _qwen_session_files():
+    """projects/<sanitized-cwd>/chats/<uuid>.jsonl"""
+    root = _qwen_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for proj in os.listdir(root):
+            chats = os.path.join(root, proj, "chats")
+            if not os.path.isdir(chats):
+                continue
+            for fn in sorted(os.listdir(chats)):
+                if fn.endswith(".jsonl"):
+                    out.append(os.path.join(chats, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _qwen_meta(path):
+    """First-line user record carries sessionId / timestamp / cwd."""
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("sessionId"):
+                    return o
+    except OSError:
+        pass
+    return {}
+
+
+def _qwen_text(o):
+    if o.get("type") not in ("user", "assistant"):
+        return ""
+    msg = o.get("message")
+    if not isinstance(msg, dict):
+        return ""
+    return "\n".join(p.get("text", "") for p in msg.get("parts") or []
+                     if isinstance(p, dict) and p.get("text"))
+
+
+def _qwen_role(o):
+    return "user" if o.get("type") == "user" else "assistant"
+
+
+def _qwen_first_user(path):
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict) or o.get("type") != "user":
+                    continue
+                t = _qwen_text(o)
+                if t:
+                    return t
+    except OSError:
+        pass
+    return ""
+
+
+def _qwen_sid(meta, path):
+    sid = meta.get("sessionId")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(path)[:-len(".jsonl")]
+
+
+def _qwen_row(path):
+    meta = _qwen_meta(path)
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("timestamp"), utc=True)
+    title = clean_title(_qwen_first_user(path)) or "(untitled)"
+    return {"agent": "qwen", "id": _qwen_sid(meta, path), "epoch": epoch,
+            "cwd": meta.get("cwd") or "?", "title": title}
+
+
+def _qwen_file(sid):
+    for p in _qwen_session_files():
+        if os.path.basename(p)[:-len(".jsonl")].startswith(sid):
+            return p
+    for p in _qwen_session_files():
+        if str(_qwen_meta(p).get("sessionId", "")).startswith(sid):
+            return p
+    return None
+
+
+def _lookup_qwen(sid):
+    p = _qwen_file(sid)
+    return _qwen_row(p) if p else None
+
+
+def list_qwen(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_qwen_row(p) for p in _qwen_session_files()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_qwen(sid, n=None, color=None):
+    n = _preview_lines("qwen", n)
+    p = _qwen_file(sid)
+    if not p:
+        return f"qwen session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _qwen_text(o)
+                    if t:
+                        turns.append((_qwen_role(o), t))
+    except OSError:
+        pass
+    resume = f"resume: qwen --resume {sid}"
+    return render_preview("qwen", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_qwen():
+    files = _qwen_session_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- droid ----------------
+_DROID_SESSION_RE = re.compile(r"^[0-9a-zA-Z-]+\.jsonl$")
+
+
+def _droid_root():
+    return os.path.join(HOME, ".factory", "sessions")
+
+
+def _droid_session_files():
+    """sessions/<sanitized-cwd>/<uuid>.jsonl — .settings.json and
+    .settings.json.bak aux files are excluded by the filename check."""
+    root = _droid_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for name in os.listdir(root):
+            d = os.path.join(root, name)
+            if not os.path.isdir(d):
+                continue
+            for fn in sorted(os.listdir(d)):
+                if fn.endswith(".jsonl"):
+                    out.append(os.path.join(d, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _droid_meta(path):
+    """First-line session_start record (id / title / cwd)."""
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.loads(fh.readline())
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _strip_reminder(t):
+    """Drop <system-reminder>...</system-reminder> blocks from display text."""
+    t = re.sub(r"<system-reminder>.*?</system-reminder>", " ", t,
+               flags=re.S)
+    return t.strip()
+
+
+def _droid_text(o):
+    if o.get("type") != "message":
+        return ""
+    msg = o.get("message")
+    if not isinstance(msg, dict) or \
+            msg.get("role") not in ("user", "assistant"):
+        return ""
+    texts = []
+    for b in msg.get("content") or []:
+        if isinstance(b, dict) and b.get("type") == "text":
+            texts.append(_strip_reminder(b.get("text", "")))
+        elif isinstance(b, str):
+            texts.append(_strip_reminder(b))
+    return "\n".join(t for t in texts if t)
+
+
+def _droid_first_user(path):
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict) or o.get("type") != "message":
+                    continue
+                msg = o.get("message")
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    t = _droid_text(o)
+                    if t:
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def _droid_sid(meta, path):
+    sid = meta.get("id")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(path)[:-len(".jsonl")]
+
+
+def _droid_row(path):
+    meta = _droid_meta(path)
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("createdAt"), utc=True)
+    title = meta.get("title") or clean_title(_droid_first_user(path)) \
+        or "(untitled)"
+    return {"agent": "droid", "id": _droid_sid(meta, path),
+            "epoch": epoch,
+            "cwd": meta.get("cwd") or "?", "title": title}
+
+
+def _droid_file(sid):
+    for p in _droid_session_files():
+        if os.path.basename(p).startswith(sid):
+            return p
+    for p in _droid_session_files():
+        if str(_droid_meta(p).get("id", "")).startswith(sid):
+            return p
+    return None
+
+
+def _lookup_droid(sid):
+    p = _droid_file(sid)
+    return _droid_row(p) if p else None
+
+
+def list_droid(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_droid_row(p) for p in _droid_session_files()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_droid(sid, n=None, color=None):
+    n = _preview_lines("droid", n)
+    p = _droid_file(sid)
+    if not p:
+        return f"droid session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _droid_text(o)
+                    if t:
+                        turns.append((o["message"]["role"], t))
+    except OSError:
+        pass
+    resume = f"resume: droid resume {sid}"
+    return render_preview("droid", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_droid():
+    files = _droid_session_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- grok ----------------
+def _grok_root():
+    return os.path.join(HOME, ".grok", "sessions")
+
+
+def _grok_session_dirs():
+    """sessions/<URL-encoded-cwd>/<session-id>/ — each dir holds
+    summary.json + chat_history.jsonl."""
+    root = _grok_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for enc in os.listdir(root):
+            proj = os.path.join(root, enc)
+            if not os.path.isdir(proj):
+                continue
+            for sid in sorted(os.listdir(proj)):
+                d = os.path.join(proj, sid)
+                if os.path.isdir(d) and (
+                        os.path.exists(
+                            os.path.join(d, "summary.json")) or
+                        os.path.exists(
+                            os.path.join(d, "chat_history.jsonl"))):
+                    out.append(d)
+    except OSError:
+        pass
+    return out
+
+
+def _grok_meta(d):
+    try:
+        with open(os.path.join(d, "summary.json"),
+                  errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _grok_sid(meta, d):
+    info = meta.get("info")
+    if isinstance(info, dict) and info.get("id"):
+        return str(info["id"])
+    return os.path.basename(d)
+
+
+def _grok_cwd(meta, d):
+    info = meta.get("info")
+    if isinstance(info, dict) and info.get("cwd"):
+        return str(info["cwd"])
+    try:
+        from urllib.parse import unquote
+        return unquote(os.path.basename(os.path.dirname(d)))
+    except Exception:
+        return "?"
+
+
+_GROK_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S)
+
+
+def _grok_text(o):
+    """user turns: only <user_query> payloads count (env dumps and
+    reminders are harness noise); assistant/system handled plainly."""
+    t = o.get("type")
+    if t not in ("user", "assistant"):
+        return ""
+    if t == "user":
+        texts = []
+        content = o.get("content")
+        blocks = content if isinstance(content, list) else \
+            [{"type": "text", "text": content}]
+        for b in blocks:
+            if not isinstance(b, dict) or b.get("type") != "text":
+                continue
+            txt = b.get("text") or ""
+            m = _GROK_QUERY_RE.search(txt)
+            if m:
+                texts.append(m.group(1))
+        return "\n".join(texts)
+    return _text_blocks(o.get("content"))
+
+
+def _grok_transcript(d):
+    return os.path.join(d, "chat_history.jsonl")
+
+
+def _grok_first_user(d):
+    p = _grok_transcript(d)
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("type") == "user":
+                    t = _grok_text(o)
+                    if t:
+                        return t
+    except OSError:
+        pass
+    return ""
+
+
+def _grok_row(d):
+    meta = _grok_meta(d)
+    try:
+        epoch = int(os.path.getmtime(d))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("updated_at"), utc=True)
+    title = meta.get("generated_title") or meta.get("session_summary") \
+        or clean_title(_grok_first_user(d)) or "(untitled)"
+    return {"agent": "grok", "id": _grok_sid(meta, d), "epoch": epoch,
+            "cwd": _grok_cwd(meta, d), "title": title}
+
+
+def _grok_dir(sid):
+    for d in _grok_session_dirs():
+        if os.path.basename(d).startswith(sid) or \
+                _grok_sid(_grok_meta(d), d).startswith(sid):
+            return d
+    return None
+
+
+def _lookup_grok(sid):
+    d = _grok_dir(sid)
+    return _grok_row(d) if d else None
+
+
+def list_grok(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_grok_row(d) for d in _grok_session_dirs()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_grok(sid, n=None, color=None):
+    n = _preview_lines("grok", n)
+    d = _grok_dir(sid)
+    if not d:
+        return f"grok session not found: {sid}"
+    turns = []
+    try:
+        with open(_grok_transcript(d), errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _grok_text(o)
+                    if t:
+                        turns.append((o.get("type"), t))
+    except OSError:
+        pass
+    resume = f"resume: grok --resume {sid}"
+    return render_preview("grok", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_grok():
+    dirs = _grok_session_dirs()
+    if not dirs:
+        return {"ok": False}
+    size = 0
+    for d in dirs:
+        for fn in os.listdir(d):
+            try:
+                size += os.path.getsize(os.path.join(d, fn))
+            except OSError:
+                pass
+    return {"ok": True, "count": len(dirs), "size": size}
+
+
+# ---------------- kimi ----------------
+def _kimi_root():
+    return os.path.join(HOME, ".kimi-code", "sessions")
+
+
+def _kimi_session_dirs():
+    """sessions/wd_<name>_<hash>/session_<uuid>/ — each dir holds
+    state.json + agents/main/wire.jsonl."""
+    root = _kimi_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for wd in os.listdir(root):
+            wdir = os.path.join(root, wd)
+            if not wd.startswith("wd_") or not os.path.isdir(wdir):
+                continue
+            for s in sorted(os.listdir(wdir)):
+                d = os.path.join(wdir, s)
+                if os.path.isdir(d) and \
+                        os.path.exists(os.path.join(d, "state.json")):
+                    out.append(d)
+    except OSError:
+        pass
+    return out
+
+
+def _kimi_state(d):
+    try:
+        with open(os.path.join(d, "state.json"),
+                  errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _kimi_sid(state, d):
+    sid = state.get("id")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(d)
+
+
+def _kimi_wire(d):
+    return os.path.join(d, "agents", "main", "wire.jsonl")
+
+
+def _kimi_text(o):
+    """Only agent.message.appended records carry conversation turns;
+    origin.kind == 'user' marks real prompts (injection = noise)."""
+    if o.get("type") != "agent.message.appended":
+        return "", None
+    env = o.get("message")
+    if not isinstance(env, dict):
+        return "", None
+    msg = env.get("message")
+    meta = env.get("meta") if isinstance(env.get("meta"), dict) else {}
+    if not isinstance(msg, dict):
+        return "", None
+    role = msg.get("role")
+    origin = meta.get("origin") if isinstance(meta.get("origin"),
+                                              dict) else {}
+    if role == "user" and origin.get("kind") not in (None, "user"):
+        return "", None
+    if role not in ("user", "assistant"):
+        return "", None
+    return _text_blocks(msg.get("content")), role
+
+
+def _kimi_first_user(d):
+    try:
+        with open(_kimi_wire(d), errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict):
+                    continue
+                t, role = _kimi_text(o)
+                if role == "user" and t:
+                    return t
+    except OSError:
+        pass
+    return ""
+
+
+def _kimi_row(d):
+    state = _kimi_state(d)
+    epoch = int((state.get("updatedAt") or state.get("createdAt") or 0)
+                / 1000)
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(d))
+        except OSError:
+            epoch = 0
+    title = clean_title(_kimi_first_user(d)) or "(untitled)"
+    return {"agent": "kimi", "id": _kimi_sid(state, d), "epoch": epoch,
+            "cwd": state.get("cwd") or "?", "title": title}
+
+
+def _kimi_dir(sid):
+    for d in _kimi_session_dirs():
+        if os.path.basename(d).startswith(sid) or \
+                _kimi_sid(_kimi_state(d), d).startswith(sid):
+            return d
+    return None
+
+
+def _lookup_kimi(sid):
+    d = _kimi_dir(sid)
+    return _kimi_row(d) if d else None
+
+
+def list_kimi(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_kimi_row(d) for d in _kimi_session_dirs()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_kimi(sid, n=None, color=None):
+    n = _preview_lines("kimi", n)
+    d = _kimi_dir(sid)
+    if not d:
+        return f"kimi session not found: {sid}"
+    turns = []
+    try:
+        with open(_kimi_wire(d), errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t, role = _kimi_text(o)
+                    if t and role:
+                        turns.append((role, t))
+    except OSError:
+        pass
+    resume = f"resume: kimi --session {sid}"
+    return render_preview("kimi", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_kimi():
+    dirs = _kimi_session_dirs()
+    if not dirs:
+        return {"ok": False}
+    size = 0
+    for d in dirs:
+        for w in os.walk(d):
+            for fn in w[2]:
+                try:
+                    size += os.path.getsize(os.path.join(w[0], fn))
+                except OSError:
+                    pass
+    return {"ok": True, "count": len(dirs), "size": size}
+
+
+# ---------------- copilot ----------------
+def _copilot_root():
+    return os.path.join(HOME, ".copilot", "session-state")
+
+
+def _copilot_events():
+    """session-state/<uuid>/events.jsonl"""
+    root = _copilot_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for sid in sorted(os.listdir(root)):
+            p = os.path.join(root, sid, "events.jsonl")
+            if os.path.exists(p):
+                out.append(p)
+    except OSError:
+        pass
+    return out
+
+
+def _copilot_meta(path):
+    """First-line session.start record (sessionId / startTime / cwd)."""
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.loads(fh.readline())
+        if isinstance(o, dict) and o.get("type") == "session.start":
+            d = o.get("data") or {}
+            if isinstance(d, dict):
+                return d
+    except Exception:
+        pass
+    return {}
+
+
+def _copilot_text(o):
+    if o.get("type") not in ("user.message", "assistant.message"):
+        return ""
+    d = o.get("data")
+    if not isinstance(d, dict):
+        return ""
+    c = d.get("content")
+    if isinstance(c, str):
+        return c
+    return _text_blocks(c)
+
+
+def _copilot_role(o):
+    return "user" if o.get("type") == "user.message" else "assistant"
+
+
+def _copilot_first_user(path):
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(o, dict) or \
+                        o.get("type") != "user.message":
+                    continue
+                t = _copilot_text(o)
+                if t:
+                    return t
+    except OSError:
+        pass
+    return ""
+
+
+def _copilot_sid(meta, path):
+    sid = meta.get("sessionId")
+    if isinstance(sid, str) and sid:
+        return sid
+    return os.path.basename(os.path.dirname(path))
+
+
+def _copilot_row(path):
+    meta = _copilot_meta(path)
+    try:
+        epoch = int(os.path.getmtime(path))
+    except OSError:
+        epoch = _epoch_from_ts(meta.get("startTime"), utc=True)
+    title = clean_title(_copilot_first_user(path)) or "(untitled)"
+    ctx = meta.get("context") if isinstance(meta.get("context"),
+                                            dict) else {}
+    return {"agent": "copilot", "id": _copilot_sid(meta, path),
+            "epoch": epoch,
+            "cwd": ctx.get("cwd") or "?", "title": title}
+
+
+def _copilot_file(sid):
+    for p in _copilot_events():
+        if os.path.basename(os.path.dirname(p)).startswith(sid):
+            return p
+    for p in _copilot_events():
+        if str(_copilot_meta(p).get("sessionId", "")).startswith(sid):
+            return p
+    return None
+
+
+def _lookup_copilot(sid):
+    p = _copilot_file(sid)
+    return _copilot_row(p) if p else None
+
+
+def list_copilot(limit=DEFAULT_LIMIT, no_cache=False):
+    out = [_copilot_row(p) for p in _copilot_events()]
+    out.sort(key=lambda r: r["epoch"], reverse=True)
+    return out[:limit]
+
+
+def preview_copilot(sid, n=None, color=None):
+    n = _preview_lines("copilot", n)
+    p = _copilot_file(sid)
+    if not p:
+        return f"copilot session not found: {sid}"
+    turns = []
+    try:
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t = _copilot_text(o)
+                    if t:
+                        turns.append((_copilot_role(o), t))
+    except OSError:
+        pass
+    resume = f"resume: copilot --resume {sid}"
+    return render_preview("copilot", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_copilot():
+    files = _copilot_events()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
 # ---------------- crush ----------------
 def _crush_share():
     return os.path.join(HOME, ".local", "share", "crush")
@@ -3262,6 +4063,11 @@ STORE_INFO = {
     "pi": store_info_pi,
     "gemini": store_info_gemini,
     "cmdc": store_info_cmdc,
+    "qwen": store_info_qwen,
+    "droid": store_info_droid,
+    "grok": store_info_grok,
+    "kimi": store_info_kimi,
+    "copilot": store_info_copilot,
 }
 
 
@@ -3270,13 +4076,18 @@ LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
            "aider": list_aider, "goose": list_goose, "omp": list_omp,
            "vibe": list_vibe, "hermes": list_hermes,
            "crush": list_crush, "pi": list_pi,
-           "gemini": list_gemini, "cmdc": list_cmdc}
+           "gemini": list_gemini, "cmdc": list_cmdc,
+           "qwen": list_qwen, "droid": list_droid, "grok": list_grok,
+           "kimi": list_kimi, "copilot": list_copilot}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
               "opencode": preview_opencode, "devin": preview_devin,
               "aider": preview_aider, "goose": preview_goose, "omp": preview_omp,
               "vibe": preview_vibe, "hermes": preview_hermes,
               "crush": preview_crush, "pi": preview_pi,
-              "gemini": preview_gemini, "cmdc": preview_cmdc}
+              "gemini": preview_gemini, "cmdc": preview_cmdc,
+              "qwen": preview_qwen, "droid": preview_droid,
+              "grok": preview_grok, "kimi": preview_kimi,
+              "copilot": preview_copilot}
 
 
 # ---------------- grep (body search) ----------------
@@ -3669,12 +4480,44 @@ def grep_cmdc(sid, pats_b, pat_s, query, max_hits=2, regex=False):
                        max_hits)
 
 
+def grep_qwen(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_jsonl(_qwen_file(sid), pats_b, pat_s, _qwen_text,
+                       max_hits)
+
+
+def grep_droid(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_jsonl(_droid_file(sid), pats_b, pat_s, _droid_text,
+                       max_hits)
+
+
+def grep_grok(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    d = _grok_dir(sid)
+    p = _grok_transcript(d) if d else None
+    return _grep_jsonl(p, pats_b, pat_s, _grok_text, max_hits)
+
+
+def grep_kimi(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    d = _kimi_dir(sid)
+    p = _kimi_wire(d) if d else None
+
+    def _extract(o):
+        return _kimi_text(o)[0] if isinstance(o, dict) else ""
+    return _grep_jsonl(p, pats_b, pat_s, _extract, max_hits)
+
+
+def grep_copilot(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_jsonl(_copilot_file(sid), pats_b, pat_s, _copilot_text,
+                       max_hits)
+
+
 GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
             "opencode": grep_opencode, "devin": grep_devin,
             "aider": grep_aider, "goose": grep_goose, "omp": grep_omp,
             "vibe": grep_vibe, "hermes": grep_hermes,
             "crush": grep_crush, "pi": grep_pi,
-            "gemini": grep_gemini, "cmdc": grep_cmdc}
+            "gemini": grep_gemini, "cmdc": grep_cmdc,
+            "qwen": grep_qwen, "droid": grep_droid, "grok": grep_grok,
+            "kimi": grep_kimi, "copilot": grep_copilot}
 
 
 def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
@@ -4041,7 +4884,10 @@ _SESSION_LOOKUPS = {"claude": _lookup_claude, "codex": _lookup_codex,
                     "devin": _lookup_devin, "aider": _lookup_aider,
                     "goose": _lookup_goose, "omp": _lookup_omp,
                     "vibe": _lookup_vibe, "hermes": _lookup_hermes,
-                    "crush": _lookup_crush, "pi": _lookup_pi}
+                    "crush": _lookup_crush, "pi": _lookup_pi,
+                    "qwen": _lookup_qwen, "droid": _lookup_droid,
+                    "grok": _lookup_grok, "kimi": _lookup_kimi,
+                    "copilot": _lookup_copilot}
 
 
 def _confirm(prompt, assume_yes):

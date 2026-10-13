@@ -1,0 +1,4 @@
+{"type": "metadata", "protocol_version": "1.5", "created_at": 1700000000000}
+{"type": "agent.message.appended", "message": {"message": {"role": "user", "content": [{"type": "text", "text": "Refactor the kimi search"}]}, "meta": {"origin": {"kind": "user"}, "source": "input"}}, "time": 1700000001000}
+{"type": "context.append_message", "agentId": "main", "message": {"role": "user", "content": [{"type": "text", "text": "<system-reminder>should not leak</system-reminder>"}], "origin": {"kind": "injection"}}, "time": 1700000001500}
+{"type": "agent.message.appended", "message": {"message": {"role": "assistant", "content": [{"type": "text", "text": "I'll refactor the kimi search"}]}, "meta": {"source": "llm"}}, "time": 1700000002000}

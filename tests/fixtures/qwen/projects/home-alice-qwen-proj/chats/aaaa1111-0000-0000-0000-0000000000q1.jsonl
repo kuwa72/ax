@@ -1,0 +1,4 @@
+{"uuid": "u1", "parentUuid": null, "sessionId": "qwen-1", "timestamp": "2026-01-15T10:00:00.000Z", "type": "user", "provenance": "real_user", "cwd": "/home/alice/qwen-proj", "message": {"role": "user", "parts": [{"text": "Refactor the qwen search"}]}}
+{"uuid": "s1", "sessionId": "qwen-1", "timestamp": "2026-01-15T10:00:01.000Z", "type": "system", "provenance": "system", "subtype": "ui_telemetry", "systemPayload": {"uiEvent": {"kind": "request", "data": "should not leak"}}}
+{"uuid": "a1", "sessionId": "qwen-1", "timestamp": "2026-01-15T10:00:02.000Z", "type": "assistant", "message": {"role": "model", "parts": [{"text": "I'll refactor the qwen search"}]}}
+{"uuid": "u2", "sessionId": "qwen-1", "timestamp": "2026-01-15T10:00:03.000Z", "type": "user", "provenance": "real_user", "cwd": "/home/alice/qwen-proj", "message": {"role": "user", "parts": [{"text": "add validation"}]}}

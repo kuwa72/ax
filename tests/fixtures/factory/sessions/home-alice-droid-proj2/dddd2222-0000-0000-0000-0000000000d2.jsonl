@@ -1,0 +1,3 @@
+{"type": "session_start", "id": "droid-2", "title": "Plan the migration", "cwd": "/home/alice/droid-proj2"}
+{"type": "message", "id": "u1", "seq": 0, "message": {"role": "user", "content": [{"type": "text", "text": "Plan the migration"}]}}
+{"type": "message", "id": "a1", "seq": 1, "message": {"role": "assistant", "content": [{"type": "text", "text": "Drafting the migration plan"}]}}

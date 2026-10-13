@@ -951,6 +951,237 @@ def generate_cmdc():
     ])
 
 
+def generate_qwen():
+    base = os.path.join(FIXTURES, "fixtures", "qwen", "projects")
+    sid1 = "aaaa1111-0000-0000-0000-0000000000q1"
+    d1 = os.path.join(base, "home-alice-qwen-proj", "chats")
+    write_jsonl(os.path.join(d1, sid1 + ".jsonl"), [
+        {"uuid": "u1", "parentUuid": None, "sessionId": "qwen-1",
+         "timestamp": "2026-01-15T10:00:00.000Z", "type": "user",
+         "provenance": "real_user", "cwd": "/home/alice/qwen-proj",
+         "message": {"role": "user",
+                     "parts": [{"text": "Refactor the qwen search"}]}},
+        # system records must not leak into preview/grep
+        {"uuid": "s1", "sessionId": "qwen-1",
+         "timestamp": "2026-01-15T10:00:01.000Z", "type": "system",
+         "provenance": "system", "subtype": "ui_telemetry",
+         "systemPayload": {"uiEvent": {"kind": "request",
+                                     "data": "should not leak"}}},
+        {"uuid": "a1", "sessionId": "qwen-1",
+         "timestamp": "2026-01-15T10:00:02.000Z", "type": "assistant",
+         "message": {"role": "model",
+                     "parts": [{"text": "I'll refactor the qwen search"}]}},
+        {"uuid": "u2", "sessionId": "qwen-1",
+         "timestamp": "2026-01-15T10:00:03.000Z", "type": "user",
+         "provenance": "real_user", "cwd": "/home/alice/qwen-proj",
+         "message": {"role": "user",
+                     "parts": [{"text": "add validation"}]}},
+    ])
+    sid2 = "bbbb2222-0000-0000-0000-0000000000q2"
+    d2 = os.path.join(base, "home-alice-qwen-proj2", "chats")
+    write_jsonl(os.path.join(d2, sid2 + ".jsonl"), [
+        {"uuid": "u1", "parentUuid": None, "sessionId": "qwen-2",
+         "timestamp": "2026-01-14T09:00:00.000Z", "type": "user",
+         "provenance": "real_user", "cwd": "/home/alice/qwen-proj2",
+         "message": {"role": "user",
+                     "parts": [{"text": "Plan the migration"}]}},
+        {"uuid": "a1", "sessionId": "qwen-2",
+         "timestamp": "2026-01-14T09:00:01.000Z", "type": "assistant",
+         "message": {"role": "model",
+                     "parts": [{"text": "Drafting the migration plan"}]}},
+    ])
+
+
+def generate_droid():
+    base = os.path.join(FIXTURES, "fixtures", "factory", "sessions")
+    sid1 = "dddd1111-0000-0000-0000-0000000000d1"
+    d1 = os.path.join(base, "home-alice-droid-proj")
+    write_jsonl(os.path.join(d1, sid1 + ".jsonl"), [
+        {"type": "session_start", "id": "droid-1",
+         "title": "Refactor the droid search",
+         "cwd": "/home/alice/droid-proj"},
+        # system-reminder blocks must not leak into preview/grep
+        {"type": "message", "id": "u0", "seq": 0,
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "<system-reminder>should not "
+                                          "leak</system-reminder>"}]}},
+        {"type": "message", "id": "u1", "seq": 1,
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Refactor the droid search"}]}},
+        {"type": "message", "id": "a1", "seq": 2,
+         "message": {"role": "assistant",
+                     "content": [{"type": "text",
+                                  "text": "I'll refactor the droid "
+                                          "search"}]}},
+        {"type": "agent_turn_outcome", "outcome": "success"},
+    ])
+    # aux settings files must not be collected as transcripts
+    write_json(os.path.join(d1, sid1 + ".settings.json"),
+               {"model": "poolside/laguna-s-2.1-free"})
+    sid2 = "dddd2222-0000-0000-0000-0000000000d2"
+    d2 = os.path.join(base, "home-alice-droid-proj2")
+    write_jsonl(os.path.join(d2, sid2 + ".jsonl"), [
+        {"type": "session_start", "id": "droid-2",
+         "title": "Plan the migration",
+         "cwd": "/home/alice/droid-proj2"},
+        {"type": "message", "id": "u1", "seq": 0,
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Plan the migration"}]}},
+        {"type": "message", "id": "a1", "seq": 1,
+         "message": {"role": "assistant",
+                     "content": [{"type": "text",
+                                  "text": "Drafting the migration plan"}]}},
+    ])
+
+
+def generate_grok():
+    base = os.path.join(FIXTURES, "fixtures", "grok", "sessions")
+    sid1 = "gggg1111-0000-0000-0000-0000000000g1"
+    d1 = os.path.join(base, "%2Fhome%2Falice%2Fgrok-proj", sid1)
+    write_json(os.path.join(d1, "summary.json"), {
+        "info": {"id": "grok-1", "cwd": "/home/alice/grok-proj"},
+        "session_summary": "Refactor the grok search",
+        "generated_title": "Refactor the grok search",
+        "created_at": "2026-01-15T10:00:00.000000000Z",
+        "updated_at": "2026-01-15T10:05:00.000000000Z",
+    })
+    write_jsonl(os.path.join(d1, "chat_history.jsonl"), [
+        {"type": "system", "content": "system prompt should not leak"},
+        {"type": "user", "content": [
+            {"type": "text",
+             "text": "<user_info>env noise should not leak</user_info>"}]},
+        {"type": "user", "content": [
+            {"type": "text",
+             "text": "<user_query>\nRefactor the grok search\n"
+                     "</user_query>"}]},
+        {"type": "user", "content": [
+            {"type": "text",
+             "text": "<system-reminder>reminder should not leak"
+                     "</system-reminder>"}]},
+        {"type": "assistant", "content": [
+            {"type": "text", "text": "I'll refactor the grok search"}]},
+    ])
+    sid2 = "gggg2222-0000-0000-0000-0000000000g2"
+    d2 = os.path.join(base, "%2Fhome%2Falice%2Fgrok-proj2", sid2)
+    write_json(os.path.join(d2, "summary.json"), {
+        "info": {"id": "grok-2", "cwd": "/home/alice/grok-proj2"},
+        "generated_title": "Plan the migration",
+        "created_at": "2026-01-14T09:00:00.000000000Z",
+        "updated_at": "2026-01-14T09:05:00.000000000Z",
+    })
+    write_jsonl(os.path.join(d2, "chat_history.jsonl"), [
+        {"type": "system", "content": "system prompt"},
+        {"type": "user", "content": [
+            {"type": "text",
+             "text": "<user_query>\nPlan the migration\n</user_query>"}]},
+        {"type": "assistant", "content": [
+            {"type": "text",
+             "text": "Drafting the migration plan"}]},
+    ])
+
+
+def generate_kimi():
+    base = os.path.join(FIXTURES, "fixtures", "kimi-code", "sessions")
+    sid1 = "session_kimi1111-0000-0000-0000-0000000000k1"
+    d1 = os.path.join(base, "wd_kimi-proj_ab12", sid1)
+    write_json(os.path.join(d1, "state.json"), {
+        "id": "kimi-1", "version": 2,
+        "cwd": "/home/alice/kimi-proj",
+        "createdAt": 1700000000000, "updatedAt": 1700000300000,
+        "archived": False, "isCustomTitle": False,
+    })
+    write_jsonl(os.path.join(d1, "agents", "main", "wire.jsonl"), [
+        {"type": "metadata", "protocol_version": "1.5",
+         "created_at": 1700000000000},
+        {"type": "agent.message.appended",
+         "message": {"message": {
+             "role": "user",
+             "content": [{"type": "text",
+                          "text": "Refactor the kimi search"}]},
+             "meta": {"origin": {"kind": "user"}, "source": "input"}},
+         "time": 1700000001000},
+        # injections must not leak into preview/grep
+        {"type": "context.append_message", "agentId": "main",
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "<system-reminder>should not "
+                                          "leak</system-reminder>"}],
+                     "origin": {"kind": "injection"}},
+         "time": 1700000001500},
+        {"type": "agent.message.appended",
+         "message": {"message": {
+             "role": "assistant",
+             "content": [{"type": "text",
+                          "text": "I'll refactor the kimi search"}]},
+             "meta": {"source": "llm"}},
+         "time": 1700000002000},
+    ])
+    sid2 = "session_kimi2222-0000-0000-0000-0000000000k2"
+    d2 = os.path.join(base, "wd_kimi-proj2_cd34", sid2)
+    write_json(os.path.join(d2, "state.json"), {
+        "id": "kimi-2", "version": 2,
+        "cwd": "/home/alice/kimi-proj2",
+        "createdAt": 1699990000000, "updatedAt": 1699990300000,
+        "archived": False, "isCustomTitle": False,
+    })
+    write_jsonl(os.path.join(d2, "agents", "main", "wire.jsonl"), [
+        {"type": "metadata", "protocol_version": "1.5"},
+        {"type": "agent.message.appended",
+         "message": {"message": {
+             "role": "user",
+             "content": [{"type": "text",
+                          "text": "Plan the migration"}]},
+             "meta": {"origin": {"kind": "user"}, "source": "input"}},
+         "time": 1699990001000},
+        {"type": "agent.message.appended",
+         "message": {"message": {
+             "role": "assistant",
+             "content": [{"type": "text",
+                          "text": "Drafting the migration plan"}]},
+             "meta": {"source": "llm"}},
+         "time": 1699990002000},
+    ])
+
+
+def generate_copilot():
+    base = os.path.join(FIXTURES, "fixtures", "copilot", "session-state")
+    sid1 = "cccc1111-0000-0000-0000-0000000000c1"
+    d1 = os.path.join(base, sid1)
+    write_jsonl(os.path.join(d1, "events.jsonl"), [
+        {"type": "session.start",
+         "data": {"sessionId": "copilot-1",
+                  "startTime": "2026-01-15T10:00:00.000Z",
+                  "context": {"cwd": "/home/alice/copilot-proj"}}},
+        # non-message events must not leak
+        {"type": "session.model_change",
+         "data": {"newModel": "should not leak"}},
+        {"type": "user.message",
+         "data": {"content": "Refactor the copilot search",
+                  "transformedContent": "<current_datetime>2026-01-15"
+                                        "</current_datetime>\nRefactor the "
+                                        "copilot search"}},
+        {"type": "assistant.message",
+         "data": {"content": "I'll refactor the copilot search"}},
+        {"type": "system.message",
+         "data": {"content": "system noise should not leak"}},
+    ])
+    sid2 = "cccc2222-0000-0000-0000-0000000000c2"
+    d2 = os.path.join(base, sid2)
+    write_jsonl(os.path.join(d2, "events.jsonl"), [
+        {"type": "session.start",
+         "data": {"sessionId": "copilot-2",
+                  "startTime": "2026-01-14T09:00:00.000Z",
+                  "context": {"cwd": "/home/alice/copilot-proj2"}}},
+        {"type": "user.message",
+         "data": {"content": "Plan the migration"}},
+        {"type": "assistant.message",
+         "data": {"content": "Drafting the migration plan"}},
+    ])
+
+
 if __name__ == "__main__":
     generate_claude()
     generate_codex()
@@ -966,4 +1197,9 @@ if __name__ == "__main__":
     generate_crush()
     generate_gemini()
     generate_cmdc()
+    generate_qwen()
+    generate_droid()
+    generate_grok()
+    generate_kimi()
+    generate_copilot()
     print("fixtures generated in", os.path.join(FIXTURES, "fixtures"))

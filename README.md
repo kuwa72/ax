@@ -4,11 +4,11 @@
 
 [日本語版 / Japanese version](README.ja.md)
 
-`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` / `gemini` / `cmdc` (command-code) from a single fzf/JSON interface.
+`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` / `gemini` / `cmdc` (command-code) / `qwen` (qwen-code) / `droid` (factory droid) / `grok` (xAI grok-cli) / `kimi` (kimi-code) / `copilot` (github copilot cli) from a single fzf/JSON interface.
 
 ![ax cross-agent session picker demo](images/demo.gif)
 
-Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all fourteen, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
+Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all nineteen, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
 
@@ -107,6 +107,11 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
 | pi | `pi --session <id>` |
 | gemini | `gemini --resume <id>` |
 | cmdc | `cmdc --session <id>` (unique id prefixes ok) |
+| qwen | `qwen --resume <id>` |
+| droid | `droid resume <id>` |
+| grok | `grok --resume <id>` |
+| kimi | `kimi --session <id>` |
+| copilot | `copilot --resume <id>` |
 
 ## Delete and rename
 
@@ -117,7 +122,7 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
   - goose → `goose session remove --session-id <id>` (run through a PTY; ax answers
     goose's confirm dialog only after ax's own confirmation passed)
   - opencode → `opencode session delete <id>` (also removes child sessions)
-  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
 - `ax rename` does not modify provider stores. It saves an ax-local display-name alias in `~/.local/share/ax/titles.json`. Use `--name ""` to clear. Works for all providers and only affects the `title` column in listings.
 
 ## Using from an agent (Agent Skill)
@@ -159,6 +164,11 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (first line holds `id`/`cwd`; title from the first user message)
 - gemini: `~/.gemini/tmp/<sha256-of-cwd>/chats/session-*.json` (multiple files per session are deduped; cwd is recovered by hashing candidate project dirs, `?` when unresolved)
 - cmdc: `~/.commandcode/projects/<sanitized-cwd>/<uuid>.jsonl` (first `type:"session"` line holds `id`/`cwd`; `*.checkpoints.jsonl`/`*.meta.json` aux files ignored)
+- qwen: `~/.qwen/projects/<sanitized-cwd>/chats/<uuid>.jsonl` (records carry `sessionId`/`cwd`/`message.parts[]`; `type:"system"` records ignored)
+- droid: `~/.factory/sessions/<sanitized-cwd>/<uuid>.jsonl` (first `type:"session_start"` line holds `id`/`title`/`cwd`; `*.settings.json` aux files ignored; `<system-reminder>` blocks filtered)
+- grok: `~/.grok/sessions/<url-encoded-cwd>/<uuid>/{summary.json,chat_history.jsonl}` (summary.json holds `info.id`/`info.cwd`/`generated_title`; user turns read from `<user_query>` payloads)
+- kimi: `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/{state.json,agents/main/wire.jsonl}` (state.json holds `id`/`cwd`/`updatedAt`; only `agent.message.appended` records with `origin.kind:"user"` count as user turns)
+- copilot: `~/.copilot/session-state/<uuid>/events.jsonl` (`session.start` holds `sessionId`/`context.cwd`; `user.message`/`assistant.message` carry `data.content`)
 
 ## Limitations
 

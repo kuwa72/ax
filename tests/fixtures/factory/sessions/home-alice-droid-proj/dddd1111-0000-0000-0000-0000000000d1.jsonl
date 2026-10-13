@@ -1,0 +1,5 @@
+{"type": "session_start", "id": "droid-1", "title": "Refactor the droid search", "cwd": "/home/alice/droid-proj"}
+{"type": "message", "id": "u0", "seq": 0, "message": {"role": "user", "content": [{"type": "text", "text": "<system-reminder>should not leak</system-reminder>"}]}}
+{"type": "message", "id": "u1", "seq": 1, "message": {"role": "user", "content": [{"type": "text", "text": "Refactor the droid search"}]}}
+{"type": "message", "id": "a1", "seq": 2, "message": {"role": "assistant", "content": [{"type": "text", "text": "I'll refactor the droid search"}]}}
+{"type": "agent_turn_outcome", "outcome": "success"}
