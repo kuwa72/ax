@@ -1,0 +1,3 @@
+{"type": "session.start", "data": {"sessionId": "copilot-2", "startTime": "2026-01-14T09:00:00.000Z", "context": {"cwd": "/home/alice/copilot-proj2"}}}
+{"type": "user.message", "data": {"content": "Plan the migration"}}
+{"type": "assistant.message", "data": {"content": "Drafting the migration plan"}}

@@ -1,0 +1,5 @@
+{"type": "system", "content": "system prompt should not leak"}
+{"type": "user", "content": [{"type": "text", "text": "<user_info>env noise should not leak</user_info>"}]}
+{"type": "user", "content": [{"type": "text", "text": "<user_query>\nRefactor the grok search\n</user_query>"}]}
+{"type": "user", "content": [{"type": "text", "text": "<system-reminder>reminder should not leak</system-reminder>"}]}
+{"type": "assistant", "content": [{"type": "text", "text": "I'll refactor the grok search"}]}

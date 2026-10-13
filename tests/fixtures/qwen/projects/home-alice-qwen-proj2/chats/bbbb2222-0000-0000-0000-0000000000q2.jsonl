@@ -1,0 +1,2 @@
+{"uuid": "u1", "parentUuid": null, "sessionId": "qwen-2", "timestamp": "2026-01-14T09:00:00.000Z", "type": "user", "provenance": "real_user", "cwd": "/home/alice/qwen-proj2", "message": {"role": "user", "parts": [{"text": "Plan the migration"}]}}
+{"uuid": "a1", "sessionId": "qwen-2", "timestamp": "2026-01-14T09:00:01.000Z", "type": "assistant", "message": {"role": "model", "parts": [{"text": "Drafting the migration plan"}]}}

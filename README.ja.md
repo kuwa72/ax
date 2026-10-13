@@ -6,7 +6,9 @@
 
 `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` /
 `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) /
-`crush` / `pi` / `gemini` / `cmdc` (command-code) の
+`crush` / `pi` / `gemini` / `cmdc` (command-code) /
+`qwen` (qwen-code) / `droid` (factory droid) / `grok` (xAI grok-cli) /
+`kimi` (kimi-code) / `copilot` (github copilot cli) の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
 ![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
@@ -118,6 +120,11 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 | pi | `pi --session <id>` |
 | gemini | `gemini --resume <id>` |
 | cmdc | `cmdc --session <id>` (先頭一致の短縮IDも可) |
+| qwen | `qwen --resume <id>` |
+| droid | `droid resume <id>` |
+| grok | `grok --resume <id>` |
+| kimi | `kimi --session <id>` |
+| copilot | `copilot --resume <id>` |
 
 ## 削除・リネーム
 
@@ -129,7 +136,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
     ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
   - opencode → `opencode session delete <id>` (子セッションも削除)
-  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc は未対応: `not supported` で終了コード非0。
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
@@ -174,6 +181,11 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (先頭行に `id`/`cwd`。タイトルは最初の user メッセージ)
 - gemini: `~/.gemini/tmp/<sha256-of-cwd>/chats/session-*.json` (同一 sessionId の複数ファイルは最新のみ。cwd は候補ディレクトリのハッシュで逆引き、解決不能時は `?`)
 - cmdc: `~/.commandcode/projects/<sanitized-cwd>/<uuid>.jsonl` (先頭 `type:"session"` 行に `id`/`cwd`。`*.checkpoints.jsonl`/`*.meta.json` は除外)
+- qwen: `~/.qwen/projects/<sanitized-cwd>/chats/<uuid>.jsonl` (各レコードが `sessionId`/`cwd`/`message.parts[]` を持つ。`type:"system"` は除外)
+- droid: `~/.factory/sessions/<sanitized-cwd>/<uuid>.jsonl` (先頭 `type:"session_start"` 行に `id`/`title`/`cwd`。`*.settings.json` は除外。`<system-reminder>` ブロックは非表示)
+- grok: `~/.grok/sessions/<url-encoded-cwd>/<uuid>/{summary.json,chat_history.jsonl}` (summary.json に `info.id`/`info.cwd`/`generated_title`。user ターンは `<user_query>` の中身のみ)
+- kimi: `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/{state.json,agents/main/wire.jsonl}` (state.json に `id`/`cwd`/`updatedAt`。`agent.message.appended` かつ `origin.kind:"user"` のみ user ターン)
+- copilot: `~/.copilot/session-state/<uuid>/events.jsonl` (`session.start` に `sessionId`/`context.cwd`。`user.message`/`assistant.message` が `data.content` を持つ)
 
 ## 制限
 

@@ -1,0 +1,3 @@
+{"type": "metadata", "protocol_version": "1.5"}
+{"type": "agent.message.appended", "message": {"message": {"role": "user", "content": [{"type": "text", "text": "Plan the migration"}]}, "meta": {"origin": {"kind": "user"}, "source": "input"}}, "time": 1699990001000}
+{"type": "agent.message.appended", "message": {"message": {"role": "assistant", "content": [{"type": "text", "text": "Drafting the migration plan"}]}, "meta": {"source": "llm"}}, "time": 1699990002000}
