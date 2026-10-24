@@ -158,7 +158,7 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - aider: `**/.aider.chat.history.md` under `[providers.aider] roots` (Markdown; each file may hold multiple `aider chat started` blocks)
 - goose: `~/.local/share/goose/sessions/sessions.db` (read-only) + legacy `*.jsonl` in the same dir not shadowed by the db
 - omp: `~/.omp/agent/sessions/*/*.jsonl` (256-byte title slot + `type:"session"` header + message entries)
-- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` from `~/.vibe/config.toml`)
+- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (legacy) + `~/.vibe/logs/session/unified/<sid>/{meta.json,journal/*.jsonl}` (vibe 3.x unified-session-store/v1; `save_dir`/`session_prefix` from `~/.vibe/config.toml`)
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` respected; schema columns probed per version)
 - crush: `~/.local/share/crush/projects.json` -> each `<data_dir>/crush.db` (read-only; subagent sessions with `parent_session_id` are hidden)
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (first line holds `id`/`cwd`; title from the first user message)

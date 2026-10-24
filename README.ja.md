@@ -175,7 +175,7 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - aider: `[providers.aider] roots` 配下の `**/.aider.chat.history.md` (Markdown。1ファイルに複数 `aider chat started` ブロックを含みうる)
 - goose: `~/.local/share/goose/sessions/sessions.db` (read-only) + db に取り込まれていない旧形式 `*.jsonl`
 - omp: `~/.omp/agent/sessions/*/*.jsonl` (256B title slot + `type:"session"` ヘッダ + message エントリ)
-- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (`save_dir`/`session_prefix` は `~/.vibe/config.toml` を参照)
+- vibe: `~/.vibe/logs/session/<prefix>_*/{meta.json,messages.jsonl}` (旧形式) + `~/.vibe/logs/session/unified/<sid>/{meta.json,journal/*.jsonl}` (vibe 3.x unified-session-store/v1。`save_dir`/`session_prefix` は `~/.vibe/config.toml` を参照)
 - hermes: `~/.hermes/state.db` (`$HERMES_HOME` 優先。列はバージョン差を吸収するため PRAGMA で検出)
 - crush: `~/.local/share/crush/projects.json` → 各 `<data_dir>/crush.db` (read-only。`parent_session_id` がある子セッションは非表示)
 - pi: `~/.pi/agent/sessions/<sanitized-cwd>/*.jsonl` (先頭行に `id`/`cwd`。タイトルは最初の user メッセージ)

@@ -2109,7 +2109,73 @@ def _vibe_dirs():
                 out.append(d)
     except OSError:
         pass
+    uni = os.path.join(save_dir, "unified")
+    try:
+        for name in os.listdir(uni):
+            d = os.path.join(uni, name)
+            if os.path.isdir(d) and \
+                    os.path.exists(os.path.join(d, "meta.json")):
+                out.append(d)
+    except OSError:
+        pass
     return out
+
+
+def _vibe_is_unified(d):
+    return not os.path.exists(os.path.join(d, "messages.jsonl")) \
+        and os.path.isdir(os.path.join(d, "journal"))
+
+
+def _vibe_journal_files(d):
+    try:
+        return [os.path.join(d, "journal", n)
+                for n in sorted(os.listdir(os.path.join(d, "journal")))
+                if n.endswith(".jsonl")]
+    except OSError:
+        return []
+
+
+def _vibe_journal_entries(d):
+    """Yield unified-store journal append_entry entries (role user/assistant)
+    in segment order. Each is a dict with role/content[].text/id."""
+    for jf in _vibe_journal_files(d):
+        try:
+            with open(jf, "rb") as fh:
+                for line in fh:
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    p = o.get("payload") if isinstance(o, dict) else None
+                    if not isinstance(p, dict):
+                        continue
+                    for dl in p.get("delta") or []:
+                        if not isinstance(dl, dict) or \
+                                dl.get("op") != "append_entry":
+                            continue
+                        e = dl.get("entry")
+                        if isinstance(e, dict) and \
+                                e.get("role") in ("user", "assistant"):
+                            yield e
+        except OSError:
+            continue
+
+
+def _vibe_unified_turns(d):
+    """Ordered (role, text) turns from journal entries, deduped by entry id
+    (a streaming entry is re-emitted as it completes)."""
+    turns = {}
+    anon = 0
+    for e in _vibe_journal_entries(d):
+        t = _text_blocks(e.get("content"))
+        if not t:
+            continue
+        eid = e.get("id")
+        if not isinstance(eid, str) or not eid:
+            anon += 1
+            eid = f"\x00anon{anon}"
+        turns[eid] = (e["role"], t)
+    return list(turns.values())
 
 
 def _vibe_meta(d):
@@ -2144,6 +2210,14 @@ def _vibe_text(o):
 
 
 def _vibe_first_user(d):
+    if _vibe_is_unified(d):
+        for e in _vibe_journal_entries(d):
+            if e.get("role") != "user":
+                continue
+            t = _text_blocks(e.get("content"))
+            if t:
+                return t
+        return ""
     try:
         with open(os.path.join(d, "messages.jsonl"), "rb") as fh:
             for line in fh.read(65536).split(b"\n"):
@@ -2168,10 +2242,18 @@ def _vibe_cwd(meta):
 def _vibe_row(d):
     """Build one vibe list-row from a session dir (cwd/title/epoch)."""
     meta = _vibe_meta(d)
-    try:
-        epoch = int(os.path.getmtime(os.path.join(d, "messages.jsonl")))
-    except OSError:
-        epoch = _epoch_from_ts(meta.get("updated_at"), utc=True)
+    epoch = 0
+    files = _vibe_journal_files(d) if _vibe_is_unified(d) \
+        else [os.path.join(d, "messages.jsonl")]
+    if files:
+        try:
+            epoch = int(os.path.getmtime(files[-1]))
+        except OSError:
+            pass
+    if not epoch:
+        epoch = _epoch_from_ts(
+            meta.get("bumped_at") or meta.get("end_time")
+            or meta.get("start_time") or meta.get("updated_at"), utc=True)
     title = (meta.get("title") or "").strip() or \
         clean_title(_vibe_first_user(d)) or "(untitled)"
     return {"agent": "vibe", "id": _vibe_sid(d, meta), "epoch": epoch,
@@ -2201,20 +2283,24 @@ def preview_vibe(sid, n=None, color=None):
     d = _vibe_dir(sid)
     if not d:
         return f"vibe session not found: {sid}"
-    turns = []
-    try:
-        with open(os.path.join(d, "messages.jsonl"), errors="replace") as fh:
-            for line in fh:
-                try:
-                    o = json.loads(line)
-                except Exception:
-                    continue
-                if isinstance(o, dict):
-                    t = _vibe_text(o)
-                    if t:
-                        turns.append((o["role"], t))
-    except OSError:
-        pass
+    if _vibe_is_unified(d):
+        turns = _vibe_unified_turns(d)
+    else:
+        turns = []
+        try:
+            with open(os.path.join(d, "messages.jsonl"),
+                      errors="replace") as fh:
+                for line in fh:
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(o, dict):
+                        t = _vibe_text(o)
+                        if t:
+                            turns.append((o["role"], t))
+        except OSError:
+            pass
     resume = f"resume: vibe --resume {sid}"
     return render_preview("vibe", sid, turns[-n:], extra=[resume],
                           total=len(turns), color=color)
@@ -2534,11 +2620,12 @@ def store_info_vibe():
         return {"ok": False}
     size = 0
     for d in dirs:
-        for fn in os.listdir(d):
-            try:
-                size += os.path.getsize(os.path.join(d, fn))
-            except OSError:
-                pass
+        for dp, _dns, fns in os.walk(d):
+            for fn in fns:
+                try:
+                    size += os.path.getsize(os.path.join(dp, fn))
+                except OSError:
+                    pass
     return {"ok": True, "count": len(dirs), "size": size}
 
 
@@ -4408,9 +4495,33 @@ def grep_omp(sid, pats_b, pat_s, query, max_hits=2, regex=False):
     return _grep_jsonl(_omp_file(sid), pats_b, pat_s, _omp_text, max_hits)
 
 
+def _vibe_journal_text(o):
+    """Joined user/assistant text of one unified journal record, so hits are
+    on message bodies only (state deltas and metadata never match)."""
+    p = o.get("payload") if isinstance(o.get("payload"), dict) else {}
+    out = []
+    for dl in p.get("delta") or []:
+        e = dl.get("entry") if isinstance(dl, dict) else None
+        if isinstance(e, dict) and e.get("role") in ("user", "assistant"):
+            t = _text_blocks(e.get("content"))
+            if t:
+                out.append(t)
+    return "\n".join(out)
+
+
 def grep_vibe(sid, pats_b, pat_s, query, max_hits=2, regex=False):
     d = _vibe_dir(sid)
-    p = os.path.join(d, "messages.jsonl") if d else None
+    if not d:
+        return []
+    if _vibe_is_unified(d):
+        out = []
+        for jf in _vibe_journal_files(d):
+            out += _grep_jsonl(jf, pats_b, pat_s, _vibe_journal_text,
+                               max_hits - len(out))
+            if len(out) >= max_hits:
+                break
+        return out
+    p = os.path.join(d, "messages.jsonl")
     return _grep_jsonl(p, pats_b, pat_s, _vibe_text, max_hits)
 
 

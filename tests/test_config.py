@@ -158,7 +158,7 @@ class TestConfig(unittest.TestCase):
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 42)
+        self.assertEqual(len(lines), 44)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7, f"bad TSV line: {line!r}")
@@ -177,7 +177,7 @@ class TestConfig(unittest.TestCase):
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 40)
+        self.assertEqual(len(lines), 42)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7)
@@ -298,7 +298,7 @@ disabled = "agy"
         self.assertEqual(mod.CONFIG["providers"]["disabled"], [])
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 42)
+        self.assertEqual(len(out.strip().splitlines()), 44)
 
     def test_unknown_disabled_provider_warns(self):
         self._write_config('[providers]\ndisabled = ["unknown", "agy"]\n')
@@ -332,7 +332,7 @@ disabled = "agy"
         self.assertIn("config read failed", err)
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 42)
+        self.assertEqual(len(out.strip().splitlines()), 44)
 
 
 if __name__ == "__main__":
