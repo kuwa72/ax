@@ -646,6 +646,57 @@ def generate_vibe():
         os.utime(os.path.join(d, "messages.jsonl"),
                  (1700000600, 1700000600))
 
+    # vibe 3.x unified-session-store/v1: unified/<sid>/{meta.json,CURRENT,
+    # journal/*.jsonl} where journal records carry projection_delta payloads
+    # with delta[].op=="append_entry" entries (role/content[].text).
+    uni = os.path.join(base, "unified")
+    for sid, title, wd, segs in [
+        ("vbu003", "vibe unified one", "/home/alice/vibeuni",
+         [[("user", "Deploy the stack"), ("assistant", "Deploying now")]]),
+        ("vbu004", None, "/home/alice/vibeuni2",
+         [[("user", "Rotate the keys"), ("assistant", "Rotating")],
+          [("user", "Rotate again"), ("assistant", "Done rotating")]]),
+    ]:
+        d = os.path.join(uni, sid)
+        os.makedirs(os.path.join(d, "journal"), exist_ok=True)
+        meta = {"session_id": sid,
+                "environment": {"working_directory": wd},
+                "origin_directory": wd,
+                "start_time": "2026-10-20T04:20:00+00:00",
+                "bumped_at": "2026-10-20T04:21:00+00:00"}
+        if title:
+            meta["title"] = title
+        write_json(os.path.join(d, "meta.json"), meta)
+        write_json(os.path.join(d, "CURRENT"),
+                   {"generation": f"{len(segs):016d}",
+                    "session_id": sid,
+                    "store_format":
+                        "mistral.vibe.unified-session-store/v1",
+                    "store_format_minor": 9})
+        seq = 0
+        for si, turns in enumerate(segs, 1):
+            lines = []
+            for role, text in turns:
+                seq += 1
+                lines.append({
+                    "payload": {"delta": [
+                        {"op": "append_entry",
+                         "entry": {
+                             "id": f"e-{sid}-{seq}",
+                             "role": role,
+                             "source": "turn_start" if role == "user"
+                                 else "harness",
+                             "sessionId": sid,
+                             "turnId": f"turn-{si}",
+                             "generationStatus": "completed",
+                             "content": [{"type": "text", "text": text}]}},
+                        {"op": "set_state", "state": {"ignored": True}}]},
+                    "sequence": seq, "type": "projection_delta"})
+            write_jsonl(
+                os.path.join(d, "journal", f"{si:016d}.jsonl"), lines)
+            os.utime(os.path.join(d, "journal", f"{si:016d}.jsonl"),
+                     (1700000650 + si, 1700000650 + si))
+
 
 def generate_hermes():
     base = os.path.join(FIXTURES, "fixtures", "hermes")

@@ -163,7 +163,8 @@ class TestGrep(unittest.TestCase):
             ("aider", "lexer", set()),
             ("goose", "indexer", {"g-1"}),
             ("omp", "tokenizer", {"ompid1"}),
-            ("vibe", "deploy", {"vb002"}),
+            ("vibe", "deploy", {"vb002", "vbu003"}),
+            ("vibe", "rotating", {"vbu004"}),
             ("hermes", "gateway", {"h-1"}),
         ]
         aider_hit = {os.path.join(self.tmp, "aiderws", "proj-one",

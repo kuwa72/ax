@@ -135,6 +135,8 @@ class TestAx(unittest.TestCase):
             "ompid2",
             "vb001",
             "vb002",
+            "vbu003",
+            "vbu004",
             "h-1",
             "h-2",
             "pi-1",
@@ -290,10 +292,14 @@ class TestAx(unittest.TestCase):
     def test_list_vibe(self):
         rows = self.mod.list_vibe(400)
         by_id = {r["id"]: r for r in rows}
-        self.assertEqual(set(by_id), {"vb001", "vb002"})
+        self.assertEqual(set(by_id), {"vb001", "vb002", "vbu003", "vbu004"})
         self.assertEqual(by_id["vb001"]["title"], "vibe test one")
         self.assertEqual(by_id["vb001"]["cwd"], "/home/alice/vibeproj")
         self.assertEqual(by_id["vb002"]["title"], "Plan the deploy")
+        self.assertEqual(by_id["vbu003"]["title"], "vibe unified one")
+        self.assertEqual(by_id["vbu003"]["cwd"], "/home/alice/vibeuni")
+        self.assertEqual(by_id["vbu004"]["title"], "Rotate the keys")
+        self.assertEqual(by_id["vbu004"]["cwd"], "/home/alice/vibeuni2")
 
     def test_list_hermes(self):
         rows = self.mod.list_hermes(400)
@@ -395,6 +401,15 @@ class TestAx(unittest.TestCase):
         self.assertIn("Reply to: Summarize the logs", text)
         self.assertNotIn("system prompt ignored", text)
 
+    def test_preview_vibe_unified(self):
+        text = self.mod.preview_vibe("vbu004", 10)
+        self.assertIn("--- vibe vbu004", text)
+        self.assertIn("Rotate the keys", text)
+        self.assertIn("Done rotating", text)
+        self.assertLess(text.index("Rotate the keys"),
+                        text.index("Done rotating"))
+        self.assertIn("resume: vibe --resume vbu004", text)
+
     def test_preview_hermes(self):
         text = self.mod.preview_hermes("h-1", 10)
         self.assertIn("--- hermes h-1", text)
@@ -409,7 +424,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 42)
+        self.assertEqual(len(rows), 44)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])
