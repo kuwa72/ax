@@ -1233,6 +1233,333 @@ def generate_copilot():
     ])
 
 
+def generate_cline():
+    base = os.path.join(FIXTURES, "fixtures", "cline", "data")
+    db = os.path.join(base, "db", "sessions.db")
+    os.makedirs(os.path.dirname(db), exist_ok=True)
+    if os.path.exists(db):
+        os.remove(db)
+    con = sqlite3.connect(db)
+    con.execute("""CREATE TABLE sessions (
+        session_id TEXT PRIMARY KEY, cwd TEXT, prompt TEXT,
+        started_at TEXT, updated_at TEXT)""")
+    rows = [
+        ("1793000000000_c1", "/home/alice/cline-proj",
+         "Refactor the cline search", "2026-01-15T10:00:00.000Z",
+         "2026-01-15T10:05:00.000Z"),
+        ("1792990000000_c2", "/home/alice/cline-proj2",
+         "Plan the migration", "2026-01-14T09:00:00.000Z",
+         "2026-01-14T09:05:00.000Z"),
+    ]
+    con.executemany("INSERT INTO sessions VALUES (?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+    d1 = os.path.join(base, "sessions", "1793000000000_c1")
+    write_json(os.path.join(d1, "1793000000000_c1.messages.json"), {
+        "sessionId": "1793000000000_c1",
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text",
+                 "text": '<user_input mode="yolo">Refactor the cline '
+                         'search</user_input>'}]},
+            # non user/assistant rows must not leak
+            {"role": "user", "content": [
+                {"type": "text", "text": "[SYSTEM] should not leak"}]},
+            {"role": "assistant", "content": [
+                {"type": "text",
+                 "text": "I'll refactor the cline search"}]},
+        ],
+    })
+    d2 = os.path.join(base, "sessions", "1792990000000_c2")
+    write_json(os.path.join(d2, "1792990000000_c2.messages.json"), {
+        "sessionId": "1792990000000_c2",
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Plan the migration"}]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "Drafting the migration plan"}]},
+        ],
+    })
+
+
+def generate_tau():
+    base = os.path.join(FIXTURES, "fixtures", "tau", "sessions",
+                        "home-alice-tau-proj")
+    entries = [
+        {"id": "tau-1", "path": "", "cwd": "/home/alice/tau-proj",
+         "model": "deepseek/deepseek-v4.1-flash",
+         "provider_name": "commandcode", "title": None,
+         "created_at": 1700000000.0, "updated_at": 1700000300.0},
+        {"id": "tau-2", "path": "", "cwd": "/home/alice/tau-proj2",
+         "model": "deepseek/deepseek-v4.1-flash",
+         "provider_name": "commandcode", "title": "Plan the migration",
+         "created_at": 1699990000.0, "updated_at": 1699990300.0},
+    ]
+    for e in entries:
+        e["path"] = os.path.join(base, e["id"] + ".jsonl")
+    write_jsonl(os.path.join(base, "index.jsonl"), entries)
+    write_jsonl(os.path.join(base, "tau-1.jsonl"), [
+        {"type": "message", "id": "m1", "timestamp": 1700000001.0,
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Refactor the tau search"}]}},
+        # non-message entries must not leak
+        {"type": "model_change", "id": "e1", "timestamp": 1700000002.0,
+         "model": "should not leak"},
+        {"type": "message", "id": "m2", "timestamp": 1700000003.0,
+         "message": {"role": "assistant",
+                     "content": [{"type": "text",
+                                  "text": "I'll refactor the tau search"}]}},
+    ])
+    write_jsonl(os.path.join(base, "tau-2.jsonl"), [
+        {"type": "message", "id": "m1", "timestamp": 1699990001.0,
+         "message": {"role": "user",
+                     "content": [{"type": "text",
+                                  "text": "Plan the migration"}]}},
+        {"type": "message", "id": "m2", "timestamp": 1699990002.0,
+         "message": {"role": "assistant",
+                     "content": [{"type": "text",
+                                  "text": "Drafting the migration plan"}]}},
+    ])
+
+
+def generate_continue():
+    base = os.path.join(FIXTURES, "fixtures", "continue", "sessions")
+    s1 = {"sessionId": "cont-1", "title": "Refactor the continue search",
+          "workspaceDirectory": "/home/alice/continue-proj",
+          "history": [
+              {"message": {"role": "user",
+                           "content": "Refactor the continue search"}},
+              {"message": {"role": "assistant",
+                           "content": "I'll refactor the continue search"}},
+          ]}
+    s2 = {"sessionId": "cont-2", "title": "Plan the migration",
+          "workspaceDirectory": "/home/alice/continue-proj2",
+          "history": [
+              {"message": {"role": "user", "content": "Plan the migration"}},
+              {"message": {"role": "assistant",
+                           "content": "Drafting the migration plan"}},
+          ]}
+    write_json(os.path.join(base, "cont-1.json"), s1)
+    write_json(os.path.join(base, "cont-2.json"), s2)
+    write_json(os.path.join(base, "sessions.json"), [
+        {"sessionId": "cont-1", "title": "Refactor the continue search",
+         "dateCreated": "1700000000000",
+         "workspaceDirectory": "/home/alice/continue-proj"},
+        {"sessionId": "cont-2", "title": "Plan the migration",
+         "dateCreated": "1699990000000",
+         "workspaceDirectory": "/home/alice/continue-proj2"},
+    ])
+
+
+def _ocstyle_db(path, agent):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        os.remove(path)
+    con = sqlite3.connect(path)
+    con.execute("""CREATE TABLE session (
+        id TEXT PRIMARY KEY, directory TEXT, title TEXT,
+        time_updated INTEGER, parent_id TEXT)""")
+    con.execute("""CREATE TABLE message (
+        id TEXT PRIMARY KEY, session_id TEXT, data TEXT,
+        time_created INTEGER)""")
+    con.execute("""CREATE TABLE part (
+        id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT,
+        data TEXT, time_created INTEGER)""")
+    con.execute("INSERT INTO session VALUES (?,?,?,?,?)",
+                (agent + "-1", "/home/alice/" + agent + "-proj",
+                 "Refactor the " + agent + " search", 1700000300000, None))
+    con.execute("INSERT INTO session VALUES (?,?,?,?,?)",
+                (agent + "-2", "/home/alice/" + agent + "-proj2",
+                 "Plan the migration", 1699990300000, None))
+    con.execute("INSERT INTO message VALUES (?,?,?,?)",
+                ("m1", agent + "-1", json.dumps({"role": "user"}),
+                 1700000000000))
+    con.execute("INSERT INTO message VALUES (?,?,?,?)",
+                ("m2", agent + "-1", json.dumps({"role": "assistant"}),
+                 1700000001000))
+    con.execute("INSERT INTO part VALUES (?,?,?,?,?)",
+                ("p1", "m1", agent + "-1",
+                 json.dumps({"type": "text",
+                             "text": "Refactor the " + agent + " search"}),
+                 1700000000000))
+    # non-text parts must not leak
+    con.execute("INSERT INTO part VALUES (?,?,?,?,?)",
+                ("p2", "m1", agent + "-1",
+                 json.dumps({"type": "reasoning",
+                             "text": "should not leak"}),
+                 1700000001000))
+    con.execute("INSERT INTO part VALUES (?,?,?,?,?)",
+                ("p3", "m2", agent + "-1",
+                 json.dumps({"type": "text",
+                             "text": "I'll refactor the " + agent
+                                     + " search"}), 1700000002000))
+    con.execute("INSERT INTO message VALUES (?,?,?,?)",
+                ("m3", agent + "-2", json.dumps({"role": "user"}),
+                 1699990000000))
+    con.execute("INSERT INTO message VALUES (?,?,?,?)",
+                ("m4", agent + "-2", json.dumps({"role": "assistant"}),
+                 1699990001000))
+    con.execute("INSERT INTO part VALUES (?,?,?,?,?)",
+                ("p4", "m3", agent + "-2",
+                 json.dumps({"type": "text", "text": "Plan the migration"}),
+                 1699990000000))
+    con.execute("INSERT INTO part VALUES (?,?,?,?,?)",
+                ("p5", "m4", agent + "-2",
+                 json.dumps({"type": "text",
+                             "text": "Drafting the migration plan"}),
+                 1699990001000))
+    con.commit()
+    con.close()
+
+
+def generate_kilo():
+    _ocstyle_db(os.path.join(FIXTURES, "fixtures", "kilo", "kilo.db"),
+                "kilo")
+
+
+def generate_mimo():
+    _ocstyle_db(os.path.join(FIXTURES, "fixtures", "mimocode",
+                             "mimocode.db"), "mimo")
+
+
+def generate_codewhale():
+    base = os.path.join(FIXTURES, "fixtures", "codewhale", "sessions")
+    write_json(os.path.join(base, "cw-1.json"), {
+        "schema_version": 1,
+        "metadata": {"id": "cw-1", "title": "Refactor the codewhale search",
+                     "created_at": "2026-01-15T10:00:00Z",
+                     "updated_at": "2026-01-15T10:05:00Z",
+                     "workspace": "/home/alice/codewhale-proj"},
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Refactor the codewhale search"}]},
+            {"role": "assistant", "content": [
+                {"type": "text",
+                 "text": "I'll refactor the codewhale search"}]},
+        ],
+    })
+    write_json(os.path.join(base, "cw-2.json"), {
+        "schema_version": 1,
+        "metadata": {"id": "cw-2", "title": "Plan the migration",
+                     "created_at": "2026-01-14T09:00:00Z",
+                     "updated_at": "2026-01-14T09:05:00Z",
+                     "workspace": "/home/alice/codewhale-proj2"},
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Plan the migration"}]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "Drafting the migration plan"}]},
+        ],
+    })
+    # boot-owner bookkeeping must not be collected
+    write_json(os.path.join(base, "session_boot_owners.json"),
+               {"owners": {}})
+
+
+def generate_gptme():
+    base = os.path.join(FIXTURES, "fixtures", "gptme", "logs")
+    d1 = os.path.join(base, "2026-01-15-refactor-gptme")
+    write_jsonl(os.path.join(d1, "conversation.jsonl"), [
+        {"role": "system", "content": "system prompt should not leak"},
+        {"role": "user", "content": "Refactor the gptme search"},
+        {"role": "assistant", "content": "I'll refactor the gptme search"},
+    ])
+    write_text(os.path.join(d1, "config.toml"),
+               '[chat]\nmodel = "openai/x"\nworkspace = '
+               '"/home/alice/gptme-proj"\n')
+    d2 = os.path.join(base, "2026-01-14-plan-migration")
+    write_jsonl(os.path.join(d2, "conversation.jsonl"), [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "Plan the migration"},
+        {"role": "assistant", "content": "Drafting the migration plan"},
+    ])
+    write_text(os.path.join(d2, "config.toml"),
+               '[chat]\nworkspace = "/home/alice/gptme-proj2"\n')
+
+
+def generate_jcode():
+    base = os.path.join(FIXTURES, "fixtures", "jcode", "sessions")
+    write_json(os.path.join(base, "session_dove_1700000000000_j1.json"), {
+        "id": "session_dove_1700000000000_j1",
+        "title": "Refactor the jcode search",
+        "created_at": "2026-01-15T10:00:00Z",
+        "updated_at": "2026-01-15T10:05:00Z",
+        "working_dir": "/home/alice/jcode-proj",
+        "messages": [
+            # system-reminder user messages must not leak
+            {"role": "user", "content": [
+                {"type": "text",
+                 "text": "<system-reminder>should not leak"
+                         "</system-reminder>"}]},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Refactor the jcode search"}]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "I'll refactor the jcode search"}]},
+        ],
+    })
+    write_json(os.path.join(base, "session_herb_1699990000000_j2.json"), {
+        "id": "session_herb_1699990000000_j2",
+        "title": "Plan the migration",
+        "created_at": "2026-01-14T09:00:00Z",
+        "updated_at": "2026-01-14T09:05:00Z",
+        "working_dir": "/home/alice/jcode-proj2",
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Plan the migration"}]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "Drafting the migration plan"}]},
+        ],
+    })
+    # .bak files must not be collected
+    write_json(os.path.join(base, "session_dove_1700000000000_j1.bak"),
+               {"id": "session_dove_1700000000000_j1"})
+
+
+def generate_dsh():
+    try:
+        import compression.zstd  # noqa: F401
+    except ImportError:
+        return
+    import compression.zstd
+    base = os.path.join(FIXTURES, "fixtures", "dsh", "sessions",
+                        "--home-alice-dsh-proj--")
+    for sid, title, cwd, epoch in [
+            ("session-dsh-1", "Refactor the dsh search",
+             "/home/alice/dsh-proj", 1700000000000),
+            ("session-dsh-2", "Plan the migration",
+             "/home/alice/dsh-proj2", 1699990000000)]:
+        d = os.path.join(base, sid)
+        lines = [
+            {"type": "session", "version": 4, "id": sid,
+             "createdAt": epoch, "cwd": cwd},
+            {"type": "system/message", "seq": 0, "time": epoch,
+             "data": {"message": {"role": "system", "content": [
+                 {"type": "text", "text": "system prompt should not leak"}]}}},
+            {"type": "user/message", "seq": 1, "time": epoch + 1,
+             "data": {"content": [{"type": "text", "text": title}],
+                      "source": {"kind": "user"}, "role": "user",
+                      "id": "u1"}},
+            {"type": "user/message", "seq": 2, "time": epoch + 2,
+             "data": {"content": [{"type": "text",
+                                   "text": "<system-reminder>should not "
+                                           "leak</system-reminder>"}],
+                      "source": {"kind": "context"}, "role": "user",
+                      "id": "u2"}},
+            {"type": "assistant/message", "seq": 3, "time": epoch + 3,
+             "data": {"turn": 1, "step": 1, "message": {
+                 "role": "assistant", "content": [
+                     {"type": "text",
+                      "text": "I'll refactor the dsh search"
+                              if "Refactor" in title
+                              else "Drafting the migration plan"}]}}},
+        ]
+        payload = "\n".join(json.dumps(x) for x in lines) + "\n"
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "session.v4.jsonl.zstd"), "wb") as fh:
+            fh.write(compression.zstd.compress(payload.encode()))
+
+
 if __name__ == "__main__":
     generate_claude()
     generate_codex()
@@ -1253,4 +1580,13 @@ if __name__ == "__main__":
     generate_grok()
     generate_kimi()
     generate_copilot()
+    generate_cline()
+    generate_tau()
+    generate_continue()
+    generate_kilo()
+    generate_mimo()
+    generate_codewhale()
+    generate_gptme()
+    generate_jcode()
+    generate_dsh()
     print("fixtures generated in", os.path.join(FIXTURES, "fixtures"))

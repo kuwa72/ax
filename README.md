@@ -4,11 +4,11 @@
 
 [日本語版 / Japanese version](README.ja.md)
 
-`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` / `gemini` / `cmdc` (command-code) / `qwen` (qwen-code) / `droid` (factory droid) / `grok` (xAI grok-cli) / `kimi` (kimi-code) / `copilot` (github copilot cli) from a single fzf/JSON interface.
+`ax` lists, previews, and resumes past sessions for `claude` / `codex` / `agy` (antigravity-cli) / `opencode` / `devin` / `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) / `crush` / `pi` / `gemini` / `cmdc` (command-code) / `qwen` (qwen-code) / `droid` (factory droid) / `grok` (xAI grok-cli) / `kimi` (kimi-code) / `copilot` (github copilot cli) / `cline` / `tau` / `continue` / `kilo` / `mimo` (Xiaomi) / `codewhale` / `gptme` / `jcode` / `dsh` (DeepSeek Harness) from a single fzf/JSON interface.
 
 ![ax cross-agent session picker demo](images/demo.gif)
 
-Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all nineteen, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
+Existing tools (ccresume, ccsession, agf, cass, CCHV) do not cover all twenty-eight, especially `devin`, so this was built from scratch. Uses only the Python standard library and works with fzf 0.44.
 
 ## Install
 
@@ -112,6 +112,15 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
 | grok | `grok --resume <id>` |
 | kimi | `kimi --session <id>` |
 | copilot | `copilot --resume <id>` |
+| cline | `cline --id <id>` |
+| tau | `tau --session <id>` |
+| continue | `cn --resume` (most recent only) |
+| kilo | `kilo -s <id>` |
+| mimo | `mimo -s <id>` |
+| codewhale | `codewhale --resume <id>` |
+| gptme | `gptme --name <id>` |
+| jcode | `jcode --resume <id>` |
+| dsh | `dsh --profile headless --session-id <id>` |
 
 ## Delete and rename
 
@@ -122,7 +131,7 @@ Invalid values print a stderr warning and fall back to defaults. A config read f
   - goose → `goose session remove --session-id <id>` (run through a PTY; ax answers
     goose's confirm dialog only after ax's own confirmation passed)
   - opencode → `opencode session delete <id>` (also removes child sessions)
-  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh are not supported: exits with non-zero `not supported`. No writes are made to provider stores (files/SQLite).
 - `ax rename` does not modify provider stores. It saves an ax-local display-name alias in `~/.local/share/ax/titles.json`. Use `--name ""` to clear. Works for all providers and only affects the `title` column in listings.
 
 ## Using from an agent (Agent Skill)
@@ -168,7 +177,16 @@ JSON schema details are in `.agents/skills/ax/SKILL.md`.
 - droid: `~/.factory/sessions/<sanitized-cwd>/<uuid>.jsonl` (first `type:"session_start"` line holds `id`/`title`/`cwd`; `*.settings.json` aux files ignored; `<system-reminder>` blocks filtered)
 - grok: `~/.grok/sessions/<url-encoded-cwd>/<uuid>/{summary.json,chat_history.jsonl}` (summary.json holds `info.id`/`info.cwd`/`generated_title`; user turns read from `<user_query>` payloads)
 - kimi: `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/{state.json,agents/main/wire.jsonl}` (state.json holds `id`/`cwd`/`updatedAt`; only `agent.message.appended` records with `origin.kind:"user"` count as user turns)
-- copilot: `~/.copilot/session-state/<uuid>/events.jsonl` (`session.start` holds `sessionId`/`context.cwd`; `user.message`/`assistant.message` carry `data.content`)
+- copilot: `~/.copilot/session-state/<uuid>/events.jsonl`
+- cline: `~/.cline/data/db/sessions.db` (SQLite) + `~/.cline/data/sessions/<id>/<id>.messages.json`
+- tau: `~/.tau/sessions/<sanitized-cwd>/index.jsonl` (metadata) + per-session `.jsonl`
+- continue: `~/.continue/sessions/<id>.json` (`history[]`)
+- kilo: `~/.local/share/kilo/kilo.db` (opencode-style session/message/part tables)
+- mimo: `~/.local/share/mimocode/mimocode.db` (same schema as kilo)
+- codewhale: `~/.codewhale/sessions/<id>.json` (`metadata` + `messages[]`)
+- gptme: `~/.local/share/gptme/logs/<slug>/conversation.jsonl` (cwd from the log's `config.toml`)
+- jcode: `~/.jcode/sessions/session_*.json` (`working_dir` + `messages[]`)
+- dsh: `~/.dsh/sessions/<sanitized-cwd>/session-<id>/session.v4.jsonl.zstd` (needs Python >= 3.14 for `compression.zstd`; skipped otherwise) (`session.start` holds `sessionId`/`context.cwd`; `user.message`/`assistant.message` carry `data.content`)
 
 ## Limitations
 

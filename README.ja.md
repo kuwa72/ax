@@ -8,7 +8,9 @@
 `aider` / `goose` / `omp` (oh-my-pi) / `vibe` (mistral-vibe) / `hermes` (hermes-agent) /
 `crush` / `pi` / `gemini` / `cmdc` (command-code) /
 `qwen` (qwen-code) / `droid` (factory droid) / `grok` (xAI grok-cli) /
-`kimi` (kimi-code) / `copilot` (github copilot cli) の
+`kimi` (kimi-code) / `copilot` (github copilot cli) /
+`cline` / `tau` / `continue` / `kilo` / `mimo` (Xiaomi) / `codewhale` /
+`gptme` / `jcode` / `dsh` (DeepSeek Harness) の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
 ![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
@@ -125,6 +127,15 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 | grok | `grok --resume <id>` |
 | kimi | `kimi --session <id>` |
 | copilot | `copilot --resume <id>` |
+| cline | `cline --id <id>` |
+| tau | `tau --session <id>` |
+| continue | `cn --resume` (直近のみ) |
+| kilo | `kilo -s <id>` |
+| mimo | `mimo -s <id>` |
+| codewhale | `codewhale --resume <id>` |
+| gptme | `gptme --name <id>` |
+| jcode | `jcode --resume <id>` |
+| dsh | `dsh --profile headless --session-id <id>` |
 
 ## 削除・リネーム
 
@@ -136,7 +147,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
   - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
     ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
   - opencode → `opencode session delete <id>` (子セッションも削除)
-  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot は未対応: `not supported` で終了コード非0。
+  - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
 - `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
   `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
@@ -185,7 +196,16 @@ JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
 - droid: `~/.factory/sessions/<sanitized-cwd>/<uuid>.jsonl` (先頭 `type:"session_start"` 行に `id`/`title`/`cwd`。`*.settings.json` は除外。`<system-reminder>` ブロックは非表示)
 - grok: `~/.grok/sessions/<url-encoded-cwd>/<uuid>/{summary.json,chat_history.jsonl}` (summary.json に `info.id`/`info.cwd`/`generated_title`。user ターンは `<user_query>` の中身のみ)
 - kimi: `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/{state.json,agents/main/wire.jsonl}` (state.json に `id`/`cwd`/`updatedAt`。`agent.message.appended` かつ `origin.kind:"user"` のみ user ターン)
-- copilot: `~/.copilot/session-state/<uuid>/events.jsonl` (`session.start` に `sessionId`/`context.cwd`。`user.message`/`assistant.message` が `data.content` を持つ)
+- copilot: `~/.copilot/session-state/<uuid>/events.jsonl`
+- cline: `~/.cline/data/db/sessions.db` (SQLite) + `~/.cline/data/sessions/<id>/<id>.messages.json`
+- tau: `~/.tau/sessions/<sanitized-cwd>/index.jsonl` (メタデータ) + セッション別 `.jsonl`
+- continue: `~/.continue/sessions/<id>.json` (`history[]`)
+- kilo: `~/.local/share/kilo/kilo.db` (opencode 系 session/message/part)
+- mimo: `~/.local/share/mimocode/mimocode.db` (kilo と同スキーマ)
+- codewhale: `~/.codewhale/sessions/<id>.json` (`metadata` + `messages[]`)
+- gptme: `~/.local/share/gptme/logs/<slug>/conversation.jsonl` (cwd は同ディレクトリの `config.toml`)
+- jcode: `~/.jcode/sessions/session_*.json` (`working_dir` + `messages[]`)
+- dsh: `~/.dsh/sessions/<sanitized-cwd>/session-<id>/session.v4.jsonl.zstd` (Python 3.14+ の `compression.zstd` が必要。無い環境ではスキップ) (`session.start` に `sessionId`/`context.cwd`。`user.message`/`assistant.message` が `data.content` を持つ)
 
 ## 制限
 

@@ -1,0 +1,1 @@
+{"sessionId": "1793000000000_c1", "messages": [{"role": "user", "content": [{"type": "text", "text": "<user_input mode=\"yolo\">Refactor the cline search</user_input>"}]}, {"role": "user", "content": [{"type": "text", "text": "[SYSTEM] should not leak"}]}, {"role": "assistant", "content": [{"type": "text", "text": "I'll refactor the cline search"}]}]}
