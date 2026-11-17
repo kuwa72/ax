@@ -39,7 +39,9 @@ SELF = os.path.abspath(sys.argv[0])
 ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
               "aider", "goose", "omp", "vibe", "hermes",
               "crush", "pi", "gemini", "cmdc",
-              "qwen", "droid", "grok", "kimi", "copilot")
+              "qwen", "droid", "grok", "kimi", "copilot",
+              "cline", "tau", "continue", "kilo", "mimo",
+              "codewhale", "gptme", "jcode", "dsh")
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
@@ -70,6 +72,15 @@ PREVIEW_DEFAULTS = {
     "grok": 30,
     "kimi": 30,
     "copilot": 30,
+    "cline": 30,
+    "tau": 30,
+    "continue": 30,
+    "kilo": 30,
+    "mimo": 30,
+    "codewhale": 30,
+    "gptme": 30,
+    "jcode": 30,
+    "dsh": 30,
 }
 
 
@@ -377,6 +388,15 @@ RESUME_CMD = {
     "grok": lambda i: (["grok", "--resume", i]),
     "kimi": lambda i: (["kimi", "--session", i]),
     "copilot": lambda i: (["copilot", "--resume", i]),
+    "cline": lambda i: (["cline", "--id", i]),
+    "tau": lambda i: (["tau", "--session", i]),
+    "continue": lambda i: (["cn", "--resume"]),
+    "kilo": lambda i: (["kilo", "-s", i]),
+    "mimo": lambda i: (["mimo", "-s", i]),
+    "codewhale": lambda i: (["codewhale", "--resume", i]),
+    "gptme": lambda i: (["gptme", "--name", i]),
+    "jcode": lambda i: (["jcode", "--resume", i]),
+    "dsh": lambda i: (["dsh", "--profile", "headless", "--session-id", i]),
 }
 
 
@@ -3936,6 +3956,963 @@ def store_info_copilot():
     return {"ok": True, "count": len(files), "size": size}
 
 
+# ---------------- cline ----------------
+def _cline_db():
+    p = os.path.join(HOME, ".cline", "data", "db", "sessions.db")
+    if not os.path.exists(p):
+        return None
+    return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+
+
+def _cline_sessions():
+    """rows of (session_id, cwd, prompt, updated_at) from the sessions table."""
+    con = _cline_db()
+    if con is None:
+        return []
+    try:
+        return con.execute(
+            "SELECT session_id, cwd, prompt, updated_at FROM sessions "
+            "ORDER BY updated_at DESC").fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+def _cline_messages(sid):
+    p = os.path.join(HOME, ".cline", "data", "sessions", sid,
+                     sid + ".messages.json")
+    try:
+        with open(p, errors="replace") as fh:
+            d = json.load(fh)
+    except Exception:
+        return []
+    return d.get("messages") or [] if isinstance(d, dict) else []
+
+
+def _cline_text(o):
+    role = o.get("role")
+    if role not in ("user", "assistant"):
+        return ""
+    texts = []
+    for b in o.get("content") or []:
+        if not isinstance(b, dict) or b.get("type") != "text":
+            continue
+        t = b.get("text") or ""
+        if t.lstrip().startswith("[SYSTEM]"):
+            continue
+        t = re.sub(r"</?user_input[^>]*>", " ", t)
+        t = _strip_reminder(t)
+        if t:
+            texts.append(t)
+    return "\n".join(texts)
+
+
+def _cline_row(sid, cwd, prompt, updated):
+    epoch = _epoch_from_ts(updated, utc=True) or 0
+    title = clean_title(prompt or "") or "(untitled)"
+    return {"agent": "cline", "id": sid, "epoch": epoch,
+            "cwd": cwd or "?", "title": title}
+
+
+def _cline_file(sid):
+    for r in _cline_sessions():
+        if r[0] == sid or r[0].startswith(sid):
+            return r[0]
+    return None
+
+
+def _lookup_cline(sid):
+    for r in _cline_sessions():
+        if r[0] == sid or r[0].startswith(sid):
+            return _cline_row(*r)
+    return None
+
+
+def list_cline(limit=DEFAULT_LIMIT, no_cache=False):
+    return [_cline_row(*r) for r in _cline_sessions()[:limit]]
+
+
+def preview_cline(sid, n=None, color=None):
+    n = _preview_lines("cline", n)
+    real = _cline_file(sid)
+    if not real:
+        return f"cline session not found: {sid}"
+    turns = []
+    for o in _cline_messages(real):
+        if isinstance(o, dict):
+            t = _cline_text(o)
+            if t:
+                turns.append((o.get("role"), t))
+    resume = f"resume: cline --id {real}"
+    return render_preview("cline", real, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_cline():
+    rows = _cline_sessions()
+    if not rows:
+        return {"ok": False}
+    size = 0
+    base = os.path.join(HOME, ".cline", "data")
+    for w in os.walk(base):
+        for fn in w[2]:
+            try:
+                size += os.path.getsize(os.path.join(w[0], fn))
+            except OSError:
+                pass
+    return {"ok": True, "count": len(rows), "size": size}
+
+
+# ---------------- tau ----------------
+def _tau_root():
+    return os.path.join(HOME, ".tau", "sessions")
+
+
+def _tau_index():
+    """Workspace dirs each hold index.jsonl with one metadata row per
+    session; the per-session .jsonl may be empty in --print mode."""
+    root = _tau_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for ws in os.listdir(root):
+            idx = os.path.join(root, ws, "index.jsonl")
+            if not os.path.exists(idx):
+                continue
+            try:
+                with open(idx, errors="replace") as fh:
+                    for line in fh:
+                        try:
+                            o = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(o, dict) and o.get("id"):
+                            pth = o.get("path")
+                            if not (isinstance(pth, str)
+                                    and os.path.exists(pth)):
+                                o["path"] = os.path.join(
+                                    root, ws, o["id"] + ".jsonl")
+                            out.append(o)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return out
+
+
+def _tau_row(o):
+    title = clean_title(o.get("title") or "")
+    if not title:
+        p = o.get("path")
+        if isinstance(p, str) and os.path.exists(p):
+            try:
+                with open(p, errors="replace") as fh:
+                    for line in fh:
+                        try:
+                            e = json.loads(line)
+                        except Exception:
+                            continue
+                        t, role = _tau_text(e) if isinstance(e, dict) \
+                            else ("", None)
+                        if role == "user" and t:
+                            title = clean_title(t)
+                            break
+            except OSError:
+                pass
+    return {"agent": "tau", "id": o["id"],
+            "epoch": _epoch_from_ts(o.get("updated_at")) or 0,
+            "cwd": o.get("cwd") or "?",
+            "title": title or "(untitled)"}
+
+
+def _tau_meta(sid):
+    for o in _tau_index():
+        if o["id"] == sid or o["id"].startswith(sid):
+            return o
+    return None
+
+
+def _tau_text(o):
+    if o.get("type") != "message":
+        return "", None
+    m = o.get("message")
+    if not isinstance(m, dict):
+        return "", None
+    role = m.get("role")
+    if role not in ("user", "assistant"):
+        return "", None
+    return _text_blocks(m.get("content")), role
+
+
+def _lookup_tau(sid):
+    o = _tau_meta(sid)
+    return _tau_row(o) if o else None
+
+
+def list_tau(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_tau_row(o) for o in _tau_index()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_tau(sid, n=None, color=None):
+    n = _preview_lines("tau", n)
+    o = _tau_meta(sid)
+    if not o:
+        return f"tau session not found: {sid}"
+    turns = []
+    p = o.get("path")
+    if isinstance(p, str) and os.path.exists(p):
+        try:
+            with open(p, errors="replace") as fh:
+                for line in fh:
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(e, dict):
+                        t, role = _tau_text(e)
+                        if t and role:
+                            turns.append((role, t))
+        except OSError:
+            pass
+    resume = f"resume: tau --session {o['id']}"
+    return render_preview("tau", o["id"], turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_tau():
+    rows = _tau_index()
+    if not rows:
+        return {"ok": False}
+    size = 0
+    root = _tau_root()
+    for w in os.walk(root):
+        for fn in w[2]:
+            try:
+                size += os.path.getsize(os.path.join(w[0], fn))
+            except OSError:
+                pass
+    return {"ok": True, "count": len(rows), "size": size}
+
+
+# ---------------- continue ----------------
+def _continue_root():
+    return os.path.join(HOME, ".continue", "sessions")
+
+
+def _continue_files():
+    root = _continue_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for fn in sorted(os.listdir(root)):
+            if fn.endswith(".json") and fn != "sessions.json":
+                out.append(os.path.join(root, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _continue_session(path):
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _continue_row(path):
+    o = _continue_session(path)
+    sid = o.get("sessionId") or os.path.basename(path)[:-len(".json")]
+    hist = o.get("history") or []
+    epoch = 0
+    if hist:
+        ts = (hist[0].get("message") or {}).get("timestamp") if \
+            isinstance(hist[0], dict) else None
+        epoch = _epoch_from_ts(ts, utc=True) if ts else 0
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            epoch = 0
+    title = clean_title(o.get("title") or "") or "(untitled)"
+    return {"agent": "continue", "id": sid, "epoch": epoch,
+            "cwd": o.get("workspaceDirectory") or "?", "title": title}
+
+
+def _continue_file(sid):
+    for p in _continue_files():
+        if os.path.basename(p).startswith(sid) or \
+                _continue_session(p).get("sessionId") == sid:
+            return p
+    return None
+
+
+def _lookup_continue(sid):
+    p = _continue_file(sid)
+    return _continue_row(p) if p else None
+
+
+def list_continue(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_continue_row(p) for p in _continue_files()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_continue(sid, n=None, color=None):
+    n = _preview_lines("continue", n)
+    p = _continue_file(sid)
+    if not p:
+        return f"continue session not found: {sid}"
+    o = _continue_session(p)
+    turns = []
+    for h in o.get("history") or []:
+        m = h.get("message") if isinstance(h, dict) else None
+        if not isinstance(m, dict) or m.get("role") not in ("user",
+                                                            "assistant"):
+            continue
+        c = m.get("content")
+        t = c if isinstance(c, str) else _text_blocks(c)
+        if t:
+            turns.append((m["role"], t))
+    resume = "resume: cn --resume"
+    return render_preview("continue", o.get("sessionId") or sid,
+                          turns[-n:], extra=[resume], total=len(turns),
+                          color=color)
+
+
+def store_info_continue():
+    files = _continue_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- kilo / mimo (opencode-style stores) ----------------
+def _ocstyle_db_path(agent):
+    if agent == "kilo":
+        return os.path.join(HOME, ".local", "share", "kilo", "kilo.db")
+    return os.path.join(HOME, ".local", "share", "mimocode", "mimocode.db")
+
+
+def _ocstyle_connect(agent):
+    p = _ocstyle_db_path(agent)
+    if not os.path.exists(p):
+        return None
+    try:
+        return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+
+
+def _ocstyle_sessions(agent):
+    con = _ocstyle_connect(agent)
+    if con is None:
+        return []
+    try:
+        cols = _oc_table_cols(con, "session")
+        where = " WHERE (parent_id IS NULL OR parent_id = '')" \
+            if "parent_id" in cols else ""
+        return con.execute(
+            "SELECT id, directory, title, time_updated FROM session"
+            + where + " ORDER BY time_updated DESC").fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+def _ocstyle_row(agent, sid, d, title, tu):
+    return {"agent": agent, "id": sid,
+            "epoch": _epoch_from_ts(tu) or 0,
+            "cwd": d or "?", "title": clean_title(title or "") or
+            "(untitled)"}
+
+
+def _ocstyle_turns(agent, sid, n=None):
+    con = _ocstyle_connect(agent)
+    if con is None:
+        return []
+    try:
+        rows = con.execute(
+            "SELECT p.data, m.data FROM part p "
+            "LEFT JOIN message m ON m.id = p.message_id "
+            "WHERE p.session_id=? ORDER BY p.time_created",
+            (sid,)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        con.close()
+    turns = []
+    for pd, md in rows:
+        try:
+            o = json.loads(pd) if isinstance(pd, str) else pd
+        except Exception:
+            continue
+        if not (isinstance(o, dict) and o.get("type") == "text"):
+            continue
+        txt = body_text(o.get("text", ""))
+        if not txt:
+            continue
+        role = "msg"
+        try:
+            mo = json.loads(md) if isinstance(md, str) else md
+            if isinstance(mo, dict) and mo.get("role"):
+                role = mo["role"]
+        except Exception:
+            pass
+        turns.append((role, txt))
+    return turns[-n:] if n else turns
+
+
+def _ocstyle_list(agent, limit):
+    rows = [_ocstyle_row(agent, *r) for r in _ocstyle_sessions(agent)]
+    return rows[:limit]
+
+
+def _ocstyle_lookup(agent, sid):
+    for r in _ocstyle_sessions(agent):
+        if r[0] == sid or r[0].startswith(sid):
+            return _ocstyle_row(agent, *r)
+    return None
+
+
+def _ocstyle_preview(agent, sid, n, color):
+    real = None
+    for r in _ocstyle_sessions(agent):
+        if r[0] == sid or r[0].startswith(sid):
+            real = r[0]
+            break
+    if real is None:
+        return f"{agent} session not found: {sid}"
+    turns = _ocstyle_turns(agent, real, n)
+    resume = f"resume: {agent} -s {real}"
+    return render_preview(agent, real, turns, extra=[resume],
+                          total=len(turns), color=color)
+
+
+def _ocstyle_store_info(agent):
+    p = _ocstyle_db_path(agent)
+    rows = _ocstyle_sessions(agent)
+    if not rows:
+        return {"ok": False}
+    try:
+        size = os.path.getsize(p)
+    except OSError:
+        size = 0
+    return {"ok": True, "count": len(rows), "size": size}
+
+
+def list_kilo(limit=DEFAULT_LIMIT, no_cache=False):
+    return _ocstyle_list("kilo", limit)
+
+
+def preview_kilo(sid, n=None, color=None):
+    return _ocstyle_preview("kilo", sid, _preview_lines("kilo", n), color)
+
+
+def _lookup_kilo(sid):
+    return _ocstyle_lookup("kilo", sid)
+
+
+def store_info_kilo():
+    return _ocstyle_store_info("kilo")
+
+
+def list_mimo(limit=DEFAULT_LIMIT, no_cache=False):
+    return _ocstyle_list("mimo", limit)
+
+
+def preview_mimo(sid, n=None, color=None):
+    return _ocstyle_preview("mimo", sid, _preview_lines("mimo", n), color)
+
+
+def _lookup_mimo(sid):
+    return _ocstyle_lookup("mimo", sid)
+
+
+def store_info_mimo():
+    return _ocstyle_store_info("mimo")
+
+
+# ---------------- codewhale ----------------
+def _codewhale_root():
+    return os.path.join(HOME, ".codewhale", "sessions")
+
+
+def _codewhale_files():
+    root = _codewhale_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for fn in sorted(os.listdir(root)):
+            if fn.endswith(".json") and fn != "session_boot_owners.json":
+                out.append(os.path.join(root, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _codewhale_session(path):
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _codewhale_text(o):
+    if o.get("role") not in ("user", "assistant"):
+        return "", None
+    t = _text_blocks(o.get("content"))
+    return (t, o["role"]) if t else ("", None)
+
+
+def _codewhale_row(path):
+    o = _codewhale_session(path)
+    md = o.get("metadata") if isinstance(o.get("metadata"), dict) else {}
+    sid = md.get("id") or os.path.basename(path)[:-len(".json")]
+    epoch = _epoch_from_ts(md.get("updated_at"), utc=True)
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            epoch = 0
+    title = clean_title(md.get("title") or "") or "(untitled)"
+    return {"agent": "codewhale", "id": sid, "epoch": epoch,
+            "cwd": md.get("workspace") or "?", "title": title}
+
+
+def _codewhale_file(sid):
+    for p in _codewhale_files():
+        if os.path.basename(p).startswith(sid) or \
+                _codewhale_session(p).get("metadata", {}).get("id") == sid:
+            return p
+    return None
+
+
+def _lookup_codewhale(sid):
+    p = _codewhale_file(sid)
+    return _codewhale_row(p) if p else None
+
+
+def list_codewhale(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_codewhale_row(p) for p in _codewhale_files()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_codewhale(sid, n=None, color=None):
+    n = _preview_lines("codewhale", n)
+    p = _codewhale_file(sid)
+    if not p:
+        return f"codewhale session not found: {sid}"
+    o = _codewhale_session(p)
+    turns = []
+    for m in o.get("messages") or []:
+        if isinstance(m, dict):
+            t, role = _codewhale_text(m)
+            if t:
+                turns.append((role, t))
+    row = _codewhale_row(p)
+    resume = f"resume: codewhale --resume {row['id']}"
+    return render_preview("codewhale", row["id"], turns[-n:],
+                          extra=[resume], total=len(turns), color=color)
+
+
+def store_info_codewhale():
+    files = _codewhale_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- gptme ----------------
+def _gptme_root():
+    return os.path.join(HOME, ".local", "share", "gptme", "logs")
+
+
+def _gptme_dirs():
+    root = _gptme_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for name in sorted(os.listdir(root)):
+            d = os.path.join(root, name)
+            if os.path.isdir(d) and os.path.exists(
+                    os.path.join(d, "conversation.jsonl")):
+                out.append(d)
+    except OSError:
+        pass
+    return out
+
+
+def _gptme_workspace(d):
+    try:
+        with open(os.path.join(d, "config.toml"), errors="replace") as fh:
+            for line in fh:
+                m = re.match(r'\s*workspace\s*=\s*"([^"]*)"', line)
+                if m:
+                    return os.path.expanduser(m.group(1))
+    except OSError:
+        pass
+    return "?"
+
+
+def _gptme_text(o):
+    if o.get("role") not in ("user", "assistant"):
+        return "", None
+    c = o.get("content")
+    t = c if isinstance(c, str) else _text_blocks(c)
+    return (t, o["role"]) if t else ("", None)
+
+
+def _gptme_row(d):
+    slug = os.path.basename(d)
+    try:
+        epoch = int(os.path.getmtime(
+            os.path.join(d, "conversation.jsonl")))
+    except OSError:
+        epoch = 0
+    title = "(untitled)"
+    try:
+        with open(os.path.join(d, "conversation.jsonl"),
+                  errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict) and o.get("role") == "user":
+                    t = _gptme_text(o)[0]
+                    if t:
+                        title = clean_title(t)
+                        break
+    except OSError:
+        pass
+    return {"agent": "gptme", "id": slug, "epoch": epoch,
+            "cwd": _gptme_workspace(d), "title": title}
+
+
+def _gptme_dir(sid):
+    for d in _gptme_dirs():
+        if os.path.basename(d) == sid:
+            return d
+    return None
+
+
+def _lookup_gptme(sid):
+    d = _gptme_dir(sid)
+    return _gptme_row(d) if d else None
+
+
+def list_gptme(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_gptme_row(d) for d in _gptme_dirs()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_gptme(sid, n=None, color=None):
+    n = _preview_lines("gptme", n)
+    d = _gptme_dir(sid)
+    if not d:
+        return f"gptme session not found: {sid}"
+    turns = []
+    try:
+        with open(os.path.join(d, "conversation.jsonl"),
+                  errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(o, dict):
+                    t, role = _gptme_text(o)
+                    if t:
+                        turns.append((role, t))
+    except OSError:
+        pass
+    resume = f"resume: gptme --name {sid}"
+    return render_preview("gptme", sid, turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_gptme():
+    dirs = _gptme_dirs()
+    if not dirs:
+        return {"ok": False}
+    size = 0
+    for d in dirs:
+        try:
+            size += os.path.getsize(os.path.join(d, "conversation.jsonl"))
+        except OSError:
+            pass
+    return {"ok": True, "count": len(dirs), "size": size}
+
+
+# ---------------- jcode ----------------
+def _jcode_root():
+    return os.path.join(HOME, ".jcode", "sessions")
+
+
+def _jcode_files():
+    root = _jcode_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for fn in sorted(os.listdir(root)):
+            if fn.endswith(".json") and fn.startswith("session_"):
+                out.append(os.path.join(root, fn))
+    except OSError:
+        pass
+    return out
+
+
+def _jcode_session(path):
+    try:
+        with open(path, errors="replace") as fh:
+            o = json.load(fh)
+        return o if isinstance(o, dict) else {}
+    except Exception:
+        return {}
+
+
+def _jcode_text(o):
+    if o.get("role") not in ("user", "assistant"):
+        return "", None
+    t = _text_blocks(o.get("content"))
+    if not t or t.lstrip().startswith("<system-reminder>"):
+        return "", None
+    return t, o["role"]
+
+
+def _jcode_row(path):
+    o = _jcode_session(path)
+    sid = o.get("id") or os.path.basename(path)[:-len(".json")]
+    epoch = _epoch_from_ts(o.get("updated_at"), utc=True)
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(path))
+        except OSError:
+            epoch = 0
+    title = clean_title(o.get("title") or "") or "(untitled)"
+    return {"agent": "jcode", "id": sid, "epoch": epoch,
+            "cwd": o.get("working_dir") or "?", "title": title}
+
+
+def _jcode_file(sid):
+    for p in _jcode_files():
+        if os.path.basename(p).startswith(sid) or \
+                _jcode_session(p).get("id") == sid:
+            return p
+    return None
+
+
+def _lookup_jcode(sid):
+    p = _jcode_file(sid)
+    return _jcode_row(p) if p else None
+
+
+def list_jcode(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_jcode_row(p) for p in _jcode_files()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_jcode(sid, n=None, color=None):
+    n = _preview_lines("jcode", n)
+    p = _jcode_file(sid)
+    if not p:
+        return f"jcode session not found: {sid}"
+    o = _jcode_session(p)
+    turns = []
+    for m in o.get("messages") or []:
+        if isinstance(m, dict):
+            t, role = _jcode_text(m)
+            if t:
+                turns.append((role, t))
+    row = _jcode_row(p)
+    resume = f"resume: jcode --resume {row['id']}"
+    return render_preview("jcode", row["id"], turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_jcode():
+    files = _jcode_files()
+    if not files:
+        return {"ok": False}
+    size = 0
+    for p in files:
+        try:
+            size += os.path.getsize(p)
+        except OSError:
+            pass
+    return {"ok": True, "count": len(files), "size": size}
+
+
+# ---------------- dsh ----------------
+def _dsh_root():
+    return os.path.join(HOME, ".dsh", "sessions")
+
+
+def _dsh_dirs():
+    """sessions/<sanitized-cwd>/session-<uuid>/session.v4.jsonl.zstd"""
+    root = _dsh_root()
+    out = []
+    if not os.path.isdir(root):
+        return out
+    try:
+        for ws in os.listdir(root):
+            wdir = os.path.join(root, ws)
+            if not os.path.isdir(wdir):
+                continue
+            for s in sorted(os.listdir(wdir)):
+                d = os.path.join(wdir, s)
+                if os.path.isdir(d) and os.path.exists(
+                        os.path.join(d, "session.v4.jsonl.zstd")):
+                    out.append(d)
+    except OSError:
+        pass
+    return out
+
+
+def _dsh_lines(d):
+    """Decompress the zstd transcript; needs compression.zstd (py3.14+)."""
+    try:
+        import compression.zstd
+    except ImportError:
+        return []
+    p = os.path.join(d, "session.v4.jsonl.zstd")
+    try:
+        with open(p, "rb") as fh:
+            data = compression.zstd.decompress(fh.read())
+    except Exception:
+        return []
+    out = []
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
+
+
+def _dsh_meta(d):
+    for o in _dsh_lines(d)[:3]:
+        if isinstance(o, dict) and o.get("type") == "session":
+            return o
+    return {}
+
+
+def _dsh_text(o):
+    t = o.get("type")
+    data = o.get("data") if isinstance(o.get("data"), dict) else {}
+    if t == "user/message":
+        src = data.get("source") if isinstance(data.get("source"),
+                                                dict) else {}
+        if src.get("kind") not in (None, "user"):
+            return "", None
+        txt = _text_blocks(data.get("content"))
+        return (txt, "user") if txt else ("", None)
+    if t == "assistant/message":
+        msg = data.get("message") if isinstance(data.get("message"),
+                                                dict) else {}
+        txt = _text_blocks(msg.get("content"))
+        return (txt, "assistant") if txt else ("", None)
+    return "", None
+
+
+def _dsh_row(d):
+    meta = _dsh_meta(d)
+    sid = meta.get("id") or os.path.basename(d)
+    epoch = _epoch_from_ts(meta.get("createdAt"))
+    if not epoch:
+        try:
+            epoch = int(os.path.getmtime(
+                os.path.join(d, "session.v4.jsonl.zstd")))
+        except OSError:
+            epoch = 0
+    title = "(untitled)"
+    for o in _dsh_lines(d):
+        if isinstance(o, dict):
+            t, role = _dsh_text(o)
+            if role == "user" and t:
+                title = clean_title(t)
+                break
+    return {"agent": "dsh", "id": sid, "epoch": epoch,
+            "cwd": meta.get("cwd") or "?", "title": title}
+
+
+def _dsh_dir(sid):
+    for d in _dsh_dirs():
+        if os.path.basename(d) == sid or os.path.basename(d).startswith(sid):
+            return d
+    return None
+
+
+def _lookup_dsh(sid):
+    d = _dsh_dir(sid)
+    return _dsh_row(d) if d else None
+
+
+def list_dsh(limit=DEFAULT_LIMIT, no_cache=False):
+    rows = [_dsh_row(d) for d in _dsh_dirs()]
+    rows.sort(key=lambda r: r["epoch"], reverse=True)
+    return rows[:limit]
+
+
+def preview_dsh(sid, n=None, color=None):
+    n = _preview_lines("dsh", n)
+    d = _dsh_dir(sid)
+    if not d:
+        return f"dsh session not found: {sid}"
+    turns = []
+    for o in _dsh_lines(d):
+        if isinstance(o, dict):
+            t, role = _dsh_text(o)
+            if t:
+                turns.append((role, t))
+    row = _dsh_row(d)
+    resume = f"resume: dsh --profile headless --session-id {row['id']}"
+    return render_preview("dsh", row["id"], turns[-n:], extra=[resume],
+                          total=len(turns), color=color)
+
+
+def store_info_dsh():
+    dirs = _dsh_dirs()
+    if not dirs:
+        return {"ok": False}
+    size = 0
+    for d in dirs:
+        try:
+            size += os.path.getsize(
+                os.path.join(d, "session.v4.jsonl.zstd"))
+        except OSError:
+            pass
+    return {"ok": True, "count": len(dirs), "size": size}
+
+
 # ---------------- crush ----------------
 def _crush_share():
     return os.path.join(HOME, ".local", "share", "crush")
@@ -4155,6 +5132,15 @@ STORE_INFO = {
     "grok": store_info_grok,
     "kimi": store_info_kimi,
     "copilot": store_info_copilot,
+    "cline": store_info_cline,
+    "tau": store_info_tau,
+    "continue": store_info_continue,
+    "kilo": store_info_kilo,
+    "mimo": store_info_mimo,
+    "codewhale": store_info_codewhale,
+    "gptme": store_info_gptme,
+    "jcode": store_info_jcode,
+    "dsh": store_info_dsh,
 }
 
 
@@ -4165,7 +5151,12 @@ LISTERS = {"claude": list_claude, "codex": list_codex, "agy": list_agy,
            "crush": list_crush, "pi": list_pi,
            "gemini": list_gemini, "cmdc": list_cmdc,
            "qwen": list_qwen, "droid": list_droid, "grok": list_grok,
-           "kimi": list_kimi, "copilot": list_copilot}
+           "kimi": list_kimi, "copilot": list_copilot,
+           "cline": list_cline, "tau": list_tau,
+           "continue": list_continue, "kilo": list_kilo,
+           "mimo": list_mimo, "codewhale": list_codewhale,
+           "gptme": list_gptme, "jcode": list_jcode,
+           "dsh": list_dsh}
 PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_agy,
               "opencode": preview_opencode, "devin": preview_devin,
               "aider": preview_aider, "goose": preview_goose, "omp": preview_omp,
@@ -4174,7 +5165,12 @@ PREVIEWERS = {"claude": preview_claude, "codex": preview_codex, "agy": preview_a
               "gemini": preview_gemini, "cmdc": preview_cmdc,
               "qwen": preview_qwen, "droid": preview_droid,
               "grok": preview_grok, "kimi": preview_kimi,
-              "copilot": preview_copilot}
+              "copilot": preview_copilot,
+              "cline": preview_cline, "tau": preview_tau,
+              "continue": preview_continue, "kilo": preview_kilo,
+              "mimo": preview_mimo, "codewhale": preview_codewhale,
+              "gptme": preview_gptme, "jcode": preview_jcode,
+              "dsh": preview_dsh}
 
 
 # ---------------- grep (body search) ----------------
@@ -4621,6 +5617,124 @@ def grep_copilot(sid, pats_b, pat_s, query, max_hits=2, regex=False):
                        max_hits)
 
 
+def grep_cline(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    real = _cline_file(sid)
+    if not real:
+        return []
+    out = []
+    for o in _cline_messages(real):
+        if isinstance(o, dict):
+            t = _cline_text(o)
+            if t and pat_s.search(t):
+                out.append(_snippet(t, pat_s))
+                if len(out) >= max_hits:
+                    break
+    return out
+
+
+def grep_tau(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    o = _tau_meta(sid)
+    if not o:
+        return []
+    p = o.get("path")
+
+    def _extract(e):
+        return _tau_text(e)[0] if isinstance(e, dict) else ""
+    return _grep_jsonl(p, pats_b, pat_s, _extract, max_hits)
+
+
+def grep_continue(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    p = _continue_file(sid)
+    if not p:
+        return []
+    o = _continue_session(p)
+    out = []
+    for h in o.get("history") or []:
+        m = h.get("message") if isinstance(h, dict) else None
+        if not isinstance(m, dict) or m.get("role") not in ("user",
+                                                            "assistant"):
+            continue
+        c = m.get("content")
+        t = c if isinstance(c, str) else _text_blocks(c)
+        if t and pat_s.search(t):
+            out.append(_snippet(t, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def _grep_ocstyle(agent, sid, pats_b, pat_s, max_hits):
+    out = []
+    for _, t in _ocstyle_turns(agent, sid):
+        if pat_s.search(t):
+            out.append(_snippet(t, pat_s))
+            if len(out) >= max_hits:
+                break
+    return out
+
+
+def grep_kilo(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_ocstyle("kilo", sid, pats_b, pat_s, max_hits)
+
+
+def grep_mimo(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    return _grep_ocstyle("mimo", sid, pats_b, pat_s, max_hits)
+
+
+def grep_codewhale(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    p = _codewhale_file(sid)
+    if not p:
+        return []
+    out = []
+    for m in _codewhale_session(p).get("messages") or []:
+        if isinstance(m, dict):
+            t, _ = _codewhale_text(m)
+            if t and pat_s.search(t):
+                out.append(_snippet(t, pat_s))
+                if len(out) >= max_hits:
+                    break
+    return out
+
+
+def grep_gptme(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    d = _gptme_dir(sid)
+    p = os.path.join(d, "conversation.jsonl") if d else None
+
+    def _extract(o):
+        return _gptme_text(o)[0] if isinstance(o, dict) else ""
+    return _grep_jsonl(p, pats_b, pat_s, _extract, max_hits)
+
+
+def grep_jcode(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    p = _jcode_file(sid)
+    if not p:
+        return []
+    out = []
+    for m in _jcode_session(p).get("messages") or []:
+        if isinstance(m, dict):
+            t, _ = _jcode_text(m)
+            if t and pat_s.search(t):
+                out.append(_snippet(t, pat_s))
+                if len(out) >= max_hits:
+                    break
+    return out
+
+
+def grep_dsh(sid, pats_b, pat_s, query, max_hits=2, regex=False):
+    d = _dsh_dir(sid)
+    if not d:
+        return []
+    out = []
+    for o in _dsh_lines(d):
+        if isinstance(o, dict):
+            t, _ = _dsh_text(o)
+            if t and pat_s.search(t):
+                out.append(_snippet(t, pat_s))
+                if len(out) >= max_hits:
+                    break
+    return out
+
+
 GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
             "opencode": grep_opencode, "devin": grep_devin,
             "aider": grep_aider, "goose": grep_goose, "omp": grep_omp,
@@ -4628,7 +5742,12 @@ GREPPERS = {"claude": grep_claude, "codex": grep_codex, "agy": grep_agy,
             "crush": grep_crush, "pi": grep_pi,
             "gemini": grep_gemini, "cmdc": grep_cmdc,
             "qwen": grep_qwen, "droid": grep_droid, "grok": grep_grok,
-            "kimi": grep_kimi, "copilot": grep_copilot}
+            "kimi": grep_kimi, "copilot": grep_copilot,
+            "cline": grep_cline, "tau": grep_tau,
+            "continue": grep_continue, "kilo": grep_kilo,
+            "mimo": grep_mimo, "codewhale": grep_codewhale,
+            "gptme": grep_gptme, "jcode": grep_jcode,
+            "dsh": grep_dsh}
 
 
 def grep_sessions(query, agents, limit=400, per_session=2, max_rows=300,
@@ -4998,7 +6117,12 @@ _SESSION_LOOKUPS = {"claude": _lookup_claude, "codex": _lookup_codex,
                     "crush": _lookup_crush, "pi": _lookup_pi,
                     "qwen": _lookup_qwen, "droid": _lookup_droid,
                     "grok": _lookup_grok, "kimi": _lookup_kimi,
-                    "copilot": _lookup_copilot}
+                    "copilot": _lookup_copilot,
+                    "cline": _lookup_cline, "tau": _lookup_tau,
+                    "continue": _lookup_continue, "kilo": _lookup_kilo,
+                    "mimo": _lookup_mimo, "codewhale": _lookup_codewhale,
+                    "gptme": _lookup_gptme, "jcode": _lookup_jcode,
+                    "dsh": _lookup_dsh}
 
 
 def _confirm(prompt, assume_yes):

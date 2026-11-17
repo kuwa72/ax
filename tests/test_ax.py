@@ -57,6 +57,15 @@ class TestAx(unittest.TestCase):
             ("grok", ".grok"),
             ("kimi-code", ".kimi-code"),
             ("copilot", ".copilot"),
+            ("cline", ".cline"),
+            ("tau", ".tau"),
+            ("continue", ".continue"),
+            ("kilo", os.path.join(".local", "share", "kilo")),
+            ("mimocode", os.path.join(".local", "share", "mimocode")),
+            ("codewhale", ".codewhale"),
+            ("gptme", os.path.join(".local", "share", "gptme")),
+            ("jcode", ".jcode"),
+            ("dsh", ".dsh"),
             (os.path.join("crush", "share", "crush"),
              os.path.join(".local", "share", "crush")),
         ]
@@ -157,6 +166,24 @@ class TestAx(unittest.TestCase):
             "kimi-2",
             "copilot-1",
             "copilot-2",
+            "1793000000000_c1",
+            "1792990000000_c2",
+            "tau-1",
+            "tau-2",
+            "cont-1",
+            "cont-2",
+            "kilo-1",
+            "kilo-2",
+            "mimo-1",
+            "mimo-2",
+            "cw-1",
+            "cw-2",
+            "2026-01-15-refactor-gptme",
+            "2026-01-14-plan-migration",
+            "session_dove_1700000000000_j1",
+            "session_herb_1699990000000_j2",
+            "session-dsh-1",
+            "session-dsh-2",
         } | self.aider_ids
         self.assertEqual(ids, expected)
         self.assertNotIn("dev-hidden", ids)
@@ -424,7 +451,7 @@ class TestAx(unittest.TestCase):
         rows = json.loads(out)
         ids = {r["id"] for r in rows}
         self.assertIn("dev-2", ids)
-        self.assertEqual(len(rows), 44)
+        self.assertEqual(len(rows), 62)
 
     def test_cmd_list_tsv(self):
         _, out = self._capture_stdout(self.mod.cmd_list, [])

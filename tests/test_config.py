@@ -61,6 +61,15 @@ def copy_fixtures(dst):
         ("grok", ".grok"),
         ("kimi-code", ".kimi-code"),
         ("copilot", ".copilot"),
+        ("cline", ".cline"),
+        ("tau", ".tau"),
+        ("continue", ".continue"),
+        ("kilo", os.path.join(".local", "share", "kilo")),
+        ("mimocode", os.path.join(".local", "share", "mimocode")),
+        ("codewhale", ".codewhale"),
+        ("gptme", os.path.join(".local", "share", "gptme")),
+        ("jcode", ".jcode"),
+        ("dsh", ".dsh"),
         (os.path.join("crush", "share", "crush"),
          os.path.join(".local", "share", "crush")),
     ]
@@ -149,7 +158,9 @@ class TestConfig(unittest.TestCase):
             {"claude", "codex", "agy", "opencode", "devin",
              "aider", "goose", "omp", "vibe", "hermes",
              "crush", "pi", "gemini", "cmdc",
-             "qwen", "droid", "grok", "kimi", "copilot"},
+             "qwen", "droid", "grok", "kimi", "copilot",
+             "cline", "tau", "continue", "kilo", "mimo",
+             "codewhale", "gptme", "jcode", "dsh"},
         )
         self.assertEqual(mod.AGENTS, mod.ALL_AGENTS)
         self.assertEqual(mod.CONFIG["limits"]["max_sessions"], 300)
@@ -158,7 +169,7 @@ class TestConfig(unittest.TestCase):
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 44)
+        self.assertEqual(len(lines), 62)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7, f"bad TSV line: {line!r}")
@@ -172,12 +183,14 @@ class TestConfig(unittest.TestCase):
             {"claude", "codex", "opencode", "devin",
              "aider", "goose", "omp", "vibe", "hermes",
              "crush", "pi", "gemini", "cmdc",
-             "qwen", "droid", "grok", "kimi", "copilot"},
+             "qwen", "droid", "grok", "kimi", "copilot",
+             "cline", "tau", "continue", "kilo", "mimo",
+             "codewhale", "gptme", "jcode", "dsh"},
         )
 
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 42)
+        self.assertEqual(len(lines), 60)
         for line in lines:
             cols = line.split("\t")
             self.assertEqual(len(cols), 7)
@@ -218,12 +231,21 @@ droid = 1
 grok = 1
 kimi = 1
 copilot = 1
+cline = 1
+tau = 1
+continue = 1
+kilo = 1
+mimo = 1
+codewhale = 1
+gptme = 1
+jcode = 1
+dsh = 1
 """
         )
         mod = load_ax(self.tmp)
         _, out = self._capture_stdout(mod.cmd_list, [])
         lines = out.strip().splitlines()
-        self.assertEqual(len(lines), 19)
+        self.assertEqual(len(lines), 28)
         agents = [l.split("\t")[0] for l in lines]
         self.assertEqual(sorted(agents), sorted(mod.ALL_AGENTS))
 
@@ -298,7 +320,7 @@ disabled = "agy"
         self.assertEqual(mod.CONFIG["providers"]["disabled"], [])
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 44)
+        self.assertEqual(len(out.strip().splitlines()), 62)
 
     def test_unknown_disabled_provider_warns(self):
         self._write_config('[providers]\ndisabled = ["unknown", "agy"]\n')
@@ -332,7 +354,7 @@ disabled = "agy"
         self.assertIn("config read failed", err)
 
         _, out = self._capture_stdout(mod.cmd_list, [])
-        self.assertEqual(len(out.strip().splitlines()), 44)
+        self.assertEqual(len(out.strip().splitlines()), 62)
 
 
 if __name__ == "__main__":

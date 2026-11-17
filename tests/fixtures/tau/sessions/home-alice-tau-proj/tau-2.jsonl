@@ -1,0 +1,2 @@
+{"type": "message", "id": "m1", "timestamp": 1699990001.0, "message": {"role": "user", "content": [{"type": "text", "text": "Plan the migration"}]}}
+{"type": "message", "id": "m2", "timestamp": 1699990002.0, "message": {"role": "assistant", "content": [{"type": "text", "text": "Drafting the migration plan"}]}}
