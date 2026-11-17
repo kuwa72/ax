@@ -4089,6 +4089,11 @@ def _tau_index():
                         except Exception:
                             continue
                         if isinstance(o, dict) and o.get("id"):
+                            pth = o.get("path")
+                            if not (isinstance(pth, str)
+                                    and os.path.exists(pth)):
+                                o["path"] = os.path.join(
+                                    root, ws, o["id"] + ".jsonl")
                             out.append(o)
             except OSError:
                 pass

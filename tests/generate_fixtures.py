@@ -1296,7 +1296,9 @@ def generate_tau():
          "created_at": 1699990000.0, "updated_at": 1699990300.0},
     ]
     for e in entries:
-        e["path"] = os.path.join(base, e["id"] + ".jsonl")
+        # relative path; ax falls back to the index dir when it does not
+        # resolve (fixtures are copied to a temp HOME in tests)
+        e["path"] = e["id"] + ".jsonl"
     write_jsonl(os.path.join(base, "index.jsonl"), entries)
     write_jsonl(os.path.join(base, "tau-1.jsonl"), [
         {"type": "message", "id": "m1", "timestamp": 1700000001.0,
