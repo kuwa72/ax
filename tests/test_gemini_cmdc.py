@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for ax gemini / cmdc providers using synthetic fixtures."""
+"""Unit tests for axs gemini / cmdc providers using synthetic fixtures."""
 import hashlib
 import importlib.machinery as machinery
 import importlib.util
@@ -14,7 +14,7 @@ import unittest
 import ax_test_support  # noqa: F401  (scrubs store-redirecting env vars)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -22,9 +22,9 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_gemini_cmdc_test_mod", AX_PATH)
+        loader = machinery.SourceFileLoader("ax_gemini_cmdc_test_mod", AXS_PATH)
         spec = importlib.util.spec_from_loader(
-            "ax_gemini_cmdc_test_mod", loader, origin=AX_PATH)
+            "ax_gemini_cmdc_test_mod", loader, origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
@@ -165,7 +165,7 @@ class TestGeminiCmdc(unittest.TestCase):
         self.assertIn("not found", self.mod.preview_cmdc("zzz"))
 
     def test_cmdc_unique_prefix(self):
-        """cmdc --session accepts a unique id prefix; ax does too."""
+        """cmdc --session accepts a unique id prefix; axs does too."""
         text = self.mod.preview_cmdc("aaaabbbb-0000-0000-0000-0000000000c1")
         self.assertIn("Refactor the cmdc search", text)
         row = self.mod._lookup_cmdc("aaaabbbb")

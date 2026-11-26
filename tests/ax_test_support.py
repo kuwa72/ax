@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Scrub store-redirecting environment variables for the whole test run.
 
-`ax` reads a few environment variables at call time (e.g. HERMES_HOME) so
+`axs` reads a few environment variables at call time (e.g. HERMES_HOME) so
 wrapper environments can relocate provider stores. When a test run happens
 inside such a wrapper (an agent session, a CI job with custom env), those
 variables point away from tests/fixtures/ and fixture-based tests silently
 see real session data (issue #31).
 
-Usage: every test module imports this BEFORE creating its ax module
+Usage: every test module imports this BEFORE creating its axs module
 instance (i.e. before load_ax / setUpClass runs):
 
     import ax_test_support  # noqa: F401  (scrubs HERMES_HOME on import)

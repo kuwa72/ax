@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for ax configuration file support."""
+"""Tests for axs configuration file support."""
 import importlib.machinery as machinery
 import importlib.util
 import io
@@ -13,7 +13,7 @@ import unittest
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -26,9 +26,9 @@ def load_ax(home, xdg=None):
     else:
         os.environ.pop("XDG_CONFIG_HOME", None)
     try:
-        loader = machinery.SourceFileLoader("ax_test_mod_cfg", AX_PATH)
+        loader = machinery.SourceFileLoader("ax_test_mod_cfg", AXS_PATH)
         spec = importlib.util.spec_from_loader(
-            "ax_test_mod_cfg", loader, origin=AX_PATH
+            "ax_test_mod_cfg", loader, origin=AXS_PATH
         )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -134,9 +134,9 @@ class TestConfig(unittest.TestCase):
 
     def _write_config(self, text, xdg=None):
         if xdg:
-            cfg_dir = os.path.join(xdg, "ax")
+            cfg_dir = os.path.join(xdg, "axs")
         else:
-            cfg_dir = os.path.join(self.tmp, ".config", "ax")
+            cfg_dir = os.path.join(self.tmp, ".config", "axs")
         os.makedirs(cfg_dir, exist_ok=True)
         with open(os.path.join(cfg_dir, "config.toml"), "w", encoding="utf-8") as f:
             f.write(text)

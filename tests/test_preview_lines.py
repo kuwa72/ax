@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for `ax preview --lines N` (issue #39)."""
+"""Tests for `axs preview --lines N` (issue #39)."""
 import contextlib
 import io
 import json

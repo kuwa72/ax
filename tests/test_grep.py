@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for ax --grep (cross-agent body search) using synthetic fixtures."""
+"""Unit tests for axs --grep (cross-agent body search) using synthetic fixtures."""
 import contextlib
 import importlib.machinery as machinery
 import importlib.util
@@ -15,7 +15,7 @@ from unittest import mock
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -23,8 +23,8 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_grep_test_mod", AX_PATH)
-        spec = importlib.util.spec_from_loader("ax_grep_test_mod", loader, origin=AX_PATH)
+        loader = machinery.SourceFileLoader("ax_grep_test_mod", AXS_PATH)
+        spec = importlib.util.spec_from_loader("ax_grep_test_mod", loader, origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
@@ -305,7 +305,7 @@ class TestGrep(unittest.TestCase):
                 contextlib.redirect_stderr(buf):
             rc = self.mod.cmd_grep([])
         self.assertEqual(rc, 1)
-        self.assertIn("usage: ax grep", buf.getvalue())
+        self.assertIn("usage: axs grep", buf.getvalue())
 
     def test_cmd_grep_fzf_binds_preserved(self):
         rows = [{"agent": "devin", "id": "dev-1", "epoch": 1, "cwd": "?",

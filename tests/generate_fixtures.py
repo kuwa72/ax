@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate synthetic fixtures for ax tests."""
+"""Generate synthetic fixtures for axs tests."""
 import json
 import os
 import sqlite3
@@ -888,7 +888,7 @@ def generate_gemini():
     base = os.path.join(FIXTURES, "fixtures", "gemini", "tmp")
     # HASH_GEM_PROJ is renamed by the test to sha256(tmp-home/gem-proj):
     # gemini names the project dir after the one-way hash of the cwd, so
-    # ax must resolve it by hashing candidate project dirs.
+    # axs must resolve it by hashing candidate project dirs.
     s1 = os.path.join(base, "HASH_GEM_PROJ", "chats",
                       "session-2026-01-15T10-00-gem1.json")
     write_json(s1, {
@@ -1296,7 +1296,7 @@ def generate_tau():
          "created_at": 1699990000.0, "updated_at": 1699990300.0},
     ]
     for e in entries:
-        # relative path; ax falls back to the index dir when it does not
+        # relative path; axs falls back to the index dir when it does not
         # resolve (fixtures are copied to a temp HOME in tests)
         e["path"] = e["id"] + ".jsonl"
     write_jsonl(os.path.join(base, "index.jsonl"), entries)
