@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for ax using synthetic fixtures."""
+"""Unit tests for axs using synthetic fixtures."""
 import importlib.machinery as machinery
 import importlib.util
 import io
@@ -14,7 +14,7 @@ from unittest import mock
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -22,8 +22,8 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_test_mod", AX_PATH)
-        spec = importlib.util.spec_from_loader("ax_test_mod", loader, origin=AX_PATH)
+        loader = machinery.SourceFileLoader("ax_test_mod", AXS_PATH)
+        spec = importlib.util.spec_from_loader("ax_test_mod", loader, origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
@@ -269,7 +269,7 @@ class TestAx(unittest.TestCase):
     def test_opencode_cache_creates_and_reuses(self):
         rows = self.mod.list_opencode(300)
         self.assertTrue(rows)
-        cache_path = os.path.join(self.tmp, ".cache", "ax", "opencode.json")
+        cache_path = os.path.join(self.tmp, ".cache", "axs", "opencode.json")
         self.assertTrue(os.path.exists(cache_path))
         rows2 = self.mod.list_opencode(300)
         self.assertEqual(rows, rows2)

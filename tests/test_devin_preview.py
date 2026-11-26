@@ -12,7 +12,7 @@ import unittest
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 FAKE_DEVIN = os.path.join(FIXTURES, "bin")
 
@@ -20,8 +20,8 @@ FAKE_DEVIN = os.path.join(FIXTURES, "bin")
 def load_ax(home, path):
     os.environ["HOME"] = home
     os.environ["PATH"] = path
-    loader = machinery.SourceFileLoader("ax_devin_mod", AX_PATH)
-    spec = importlib.util.spec_from_loader("ax_devin_mod", loader, origin=AX_PATH)
+    loader = machinery.SourceFileLoader("ax_devin_mod", AXS_PATH)
+    spec = importlib.util.spec_from_loader("ax_devin_mod", loader, origin=AXS_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -89,7 +89,7 @@ class TestDevinPreview(unittest.TestCase):
         self.assertIn("Cloud agent response", text)
         self.assertIn("source=export", text)
         # sentinel prompt should be trimmed, not shown
-        self.assertNotIn("/_ax_preview", text)
+        self.assertNotIn("/_axs_preview", text)
 
     def test_preview_falls_back_to_message_nodes(self):
         mod = self._mod(with_devin=False)

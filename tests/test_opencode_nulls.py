@@ -12,7 +12,7 @@ import unittest
 import ax_test_support  # noqa: F401
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -20,9 +20,9 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_oc_null_mod", AX_PATH)
+        loader = machinery.SourceFileLoader("ax_oc_null_mod", AXS_PATH)
         spec = importlib.util.spec_from_loader("ax_oc_null_mod", loader,
-                                               origin=AX_PATH)
+                                               origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod

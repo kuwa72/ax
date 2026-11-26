@@ -1,4 +1,4 @@
-# ax — 12エージェント横断セッションピッカー
+# axs — 12エージェント横断セッションピッカー
 
 [![CI](https://github.com/kuwa72/ax/actions/workflows/ci.yml/badge.svg)](https://github.com/kuwa72/ax/actions)
 
@@ -13,7 +13,7 @@
 `gptme` / `jcode` / `dsh` (DeepSeek Harness) の
 過去セッションを1つの fzf/JSON インターフェースで一覧・プレビュー・resume する。
 
-![ax 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
+![axs 5エージェント横断セッションピッカーのコンソール操作デモ](images/demo.gif)
 
 既存ツール (ccresume, ccsession, agf, cass, CCHV) はいずれも
 12種すべて、特に `devin` をカバーしないため自作。stdlib のみ、fzf 0.44 で動作。
@@ -21,25 +21,25 @@
 ## 使い方
 
 ```sh
-ax                         # fzf picker (enter=resume ctrl-g=本文検索 ctrl-d=削除)
-ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
-ax grep <query> [--agent NAME] [--limit N]   # 本文横断検索 -> fzf -> resume
-ax preview <agent> <id> [--json] [--lines N]
-ax resume <agent> <id>
-ax rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex/goose/opencode)
-ax rename <agent> <id> --name "..."   # 表示名の変更 (ax ローカル)
-ax agents                  # 各ストアの検出状態・サイズ・件数
+axs                         # fzf picker (enter=resume ctrl-g=本文検索 ctrl-d=削除)
+axs list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY]
+axs grep <query> [--agent NAME] [--limit N]   # 本文横断検索 -> fzf -> resume
+axs preview <agent> <id> [--json] [--lines N]
+axs resume <agent> <id>
+axs rm <agent> <id> [--yes] [--hard]   # セッション削除 (devin/codex/goose/opencode)
+axs rename <agent> <id> --name "..."   # 表示名の変更 (axs ローカル)
+axs agents                  # 各ストアの検出状態・サイズ・件数
 ```
 
 `--grep` は会話本文のみを部分一致 (ASCII 大小文字無視) で検索し、
 ヒット行を `title` 列に `▸ <snippet>` として付記する。
-`ax grep <query> [--agent NAME] [--limit N]` で同じ検索を直接 fzf で開ける:
+`axs grep <query> [--agent NAME] [--limit N]` で同じ検索を直接 fzf で開ける:
 `--agent` は1プロバイダへの絞り込み (未知名は `list` 同様に空結果)、
 `--limit` は収集上限の上書き (既定 400)、query になるのは位置引数のみ
-(例: `ax grep "foo bar" --agent codex` は `foo bar` を検索)。picker 内では
+(例: `axs grep "foo bar" --agent codex` は `foo bar` を検索)。picker 内では
 `ctrl-g` で本文検索に切替、検索結果画面では `ctrl-g` で再検索・
 `ctrl-a` で全一覧に戻る (fzf 0.44 互換の `become` 使用)。
-`ctrl-d` で選択中セッションを削除 (`ax rm` が確認プロンプトを出し、
+`ctrl-d` で選択中セッションを削除 (`axs rm` が確認プロンプトを出し、
 削除後は picker が再起動)。削除は devin / codex / goose / opencode のみ
 対応で、他プロバイダは `not supported` で終了する。
 
@@ -49,13 +49,15 @@ ax agents                  # 各ストアの検出状態・サイズ・件数
 curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
 ```
 
-単一ファイルの `ax` を `~/.local/bin/ax` にインストール。必要要件: `python3` と `fzf >= 0.44`。環境変数で上書き可: `AX_BIN_DIR` (インストール先), `AX_REF` (取得する git ref, 既定 `main`)。特定バージョンを導入する場合: `curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | AX_REF=v0.2.0 sh`
+単一ファイルの `axs` を `~/.local/bin/axs` にインストール。必要要件: `python3` と `fzf >= 0.44`。環境変数で上書き可: `AXS_BIN_DIR` (インストール先), `AXS_REF` (取得する git ref, 既定 `main`)。特定バージョンを導入する場合: `curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | AXS_REF=v0.2.0 sh`
 
 git clone して PATH に足す運用も可: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
+コマンド名は旧 `ax` から `axs` に変更した。旧名は [yusukebe/ax](https://github.com/yusukebe/ax)（AI 時代の curl）と衝突するため。旧版を導入済みなら、新規導入後に `~/.local/bin/ax` と旧状態ディレクトリ (`~/.cache/ax`, `~/.local/share/ax`) を削除する。設定は `~/.config/axs/config.toml` に移動した。
+
 ## 設定ファイル (optional)
 
-`~/.config/ax/config.toml` (または `$XDG_CONFIG_HOME/ax/config.toml`) に
+`~/.config/axs/config.toml` (または `$XDG_CONFIG_HOME/axs/config.toml`) に
 TOML 形式で書く。存在しない場合は既定値が使われる。
 
 ```toml
@@ -83,7 +85,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - `limits.max_sessions`: 一覧で読み込む最大セッション数。`--limit` で上書き可。
 - `[limits.max_sessions]`: プロバイダ別の最大数。指定がないプロバイダはグローバル値を使う。
 - `limits.preview_lines` / `[limits.preview_lines]`: `preview` で表示する直近ターン数。`--lines` で上書き可 (優先順位: CLI `--lines` > config > 組み込み既定値)。
-- `providers.disabled`: 一覧・picker から除外するプロバイダ。`ax agents` では `disabled (config)` と表示される。
+- `providers.disabled`: 一覧・picker から除外するプロバイダ。`axs agents` では `disabled (config)` と表示される。
 - `providers.aider.roots`: `.aider.chat.history.md` の走査ルート (aider は repo ごとに履歴を持ち中央インデックスがない)。隠しdir・node_modules 等は prune、深さは 8 まで。
 - `fzf.extra_args`: picker / grep の fzf 引数に追加するオプション (fzf 0.44 互換のみ)。
 
@@ -91,7 +93,7 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 
 ## preview 形式
 
-`ax preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、チャット形式で
+`axs preview` は `--- <agent> <id> (<n> msgs)` ヘッダに続き、チャット形式で
 ターンを表示する。
 
 - user / ai どちらも左寄せで読みやすい
@@ -99,8 +101,8 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 - 各ロールヘッダにはタイムスタンプを表示
 - 本文は単語区切りで端末幅 (最大 80 桁) に折り返され、元の改行は保持
 - `[tool: exec]` / `[tools: name]` のような tool 行は非情報とみなし非表示
-- role 色は環境・tty に応じて自動 ON (`AX_PREVIEW_COLOR=1` / `NO_COLOR=1`)
-- 幅は `AX_PREVIEW_WIDTH` で固定可能
+- role 色は環境・tty に応じて自動 ON (`AXS_PREVIEW_COLOR=1` / `NO_COLOR=1`)
+- 幅は `AXS_PREVIEW_WIDTH` で固定可能
 
 `--json` は機械用に `{agent, id, preview}` を返す（ANSI コードなし）。`--lines N`（正整数）で表示ターン数を一時的に上書きでき、`--json` 出力の `preview` 文字列にも反映される。
 
@@ -139,47 +141,47 @@ extra_args = ["--bind", "ctrl-a:toggle-preview"]
 
 ## 削除・リネーム
 
-- `ax rm` は対象セッションが一覧に存在するか確認した上で、確認プロンプト
+- `axs rm` は対象セッションが一覧に存在するか確認した上で、確認プロンプト
   (または `--yes`) を必須とする。非対話 stdin ではプロンプトが EOF で中断される。
   - devin → `devin rm --force <id>` (完全削除)
   - codex → `codex archive <id>` (既定はアーカイブ、`codex unarchive` で復元可)
     / `--hard` で `codex delete --force <id>` (完全削除)
   - goose → `goose session remove --session-id <id>` (PTY 経由で実行し、
-    ax の確認通過後に goose 側の確認ダイアログへ自動応答する)
+    axs の確認通過後に goose 側の確認ダイアログへ自動応答する)
   - opencode → `opencode session delete <id>` (子セッションも削除)
   - claude / agy / aider / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh は未対応: `not supported` で終了コード非0。
     プロバイダのストア (ファイル/SQLite) には一切書き込まない。
-- `ax rename` はプロバイダのストアを変更せず、ax 側の表示名エイリアスを
-  `~/.local/share/ax/titles.json` に保存する。`--name ""` で解除。
+- `axs rename` はプロバイダのストアを変更せず、axs 側の表示名エイリアスを
+  `~/.local/share/axs/titles.json` に保存する。`--name ""` で解除。
   全プロバイダで利用可。一覧の title 列のみに反映される。
 
 ## エージェントから使う (Agent Skill)
 
-`ax` はエージェント自身から呼び出せる。Claude / Codex / OpenCode 等で Skill として導入するには：
+`axs` はエージェント自身から呼び出せる。Claude / Codex / OpenCode 等で Skill として導入するには：
 
 ```bash
-# ax 実行ファイルを PATH に置く
+# axs 実行ファイルを PATH に置く
 export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
 
 # Skill を全エージェントに導入
-npx skills add kuwa72/ax --skill ax -g
+npx skills add kuwa72/ax --skill axs -g
 ```
 
 エージェントの read-first ワークフロー：
 
-1. `ax list --json` で候補を取得
+1. `axs list --json` で候補を取得
 2. `agent` / `title` / `cwd` / `epoch` を要約してユーザーに提示
-3. 必要があれば `ax preview --json <agent> <id>` で本文確認
-4. ユーザー承認後にのみ `ax resume <agent> <id>` を実行
+3. 必要があれば `axs preview --json <agent> <id>` で本文確認
+4. ユーザー承認後にのみ `axs resume <agent> <id>` を実行
 
-JSON スキーマ詳細は `.agents/skills/ax/SKILL.md` を参照。
+JSON スキーマ詳細は `.agents/skills/axs/SKILL.md` を参照。
 
 ## データ源 (ローカルのみ)
 
 - claude: `~/.claude/projects/*/*.jsonl`
 - codex: `~/.codex/sessions/**/*.jsonl`
 - agy: `~/.gemini/antigravity-cli/conversations/*.db` + `history.jsonl` + `brain/*/transcript.jsonl`
-- opencode: `~/.local/share/opencode/opencode.db` (read-only, list cache in `~/.cache/ax/`)
+- opencode: `~/.local/share/opencode/opencode.db` (read-only, list cache in `~/.cache/axs/`)
 - devin: `~/.local/share/devin/cli/sessions.db` + `transcripts/*.json` (read-only)
   - transcript が無い/薄い場合は `devin -r <id> --export` による取得を試行
   - ネットワーク失敗・`devin` 不在時は `sessions.db` の `message_nodes` 経由でローカル履歴を再構成し、最終的にタイトルでフォールバック

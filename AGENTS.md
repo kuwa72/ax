@@ -1,4 +1,4 @@
-# AGENTS.md — ax の開発手順 (ゼロコンテキストのエージェント向け)
+# AGENTS.md — axs の開発手順 (ゼロコンテキストのエージェント向け)
 
 このリポジトリは issue 駆動で開発する。issue 番号だけ渡された状態から
 テスト追加→PR→CI 確認→マージまで自律実行できるよう、手順を固定する。
@@ -22,7 +22,7 @@ git checkout -b feat/issue-<番号>-<slug>
 
 ## 3. 実装
 
-- 変更は原則 `ax` 単一ファイル。挙動変更があれば `README.md` も更新する。
+- 変更は原則 `axs` 単一ファイル。挙動変更があれば `README.md` も更新する。
 - 制約: 標準ライブラリのみ / fzf 0.44 互換 (`transform` 等の新 action 不可) /
   SQLite は read-only URI / 1 プロバイダ異常時も他は継続 (stderr 警告のみ)。
 
@@ -30,8 +30,8 @@ git checkout -b feat/issue-<番号>-<slug>
 
 ```sh
 python3 -m pytest
-./ax list | awk -F'\t' 'NF!=7{print "BAD:", $0}'   # TSV列崩れ検出
-./ax preview <agent> <id>   # 実データで目視 (opencode.db 3GB超・読むだけ)
+./axs list | awk -F'\t' 'NF!=7{print "BAD:", $0}'   # TSV列崩れ検出
+./axs preview <agent> <id>   # 実データで目視 (opencode.db 3GB超・読むだけ)
 ```
 
 ## 5. PR

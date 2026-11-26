@@ -22,21 +22,21 @@ class TestInstallSh(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="ax_install_")
         try:
             env = os.environ.copy()
-            env["AX_BIN_DIR"] = tmp
-            env["AX_SRC"] = "file://" + os.path.join(REPO_ROOT, "ax")
+            env["AXS_BIN_DIR"] = tmp
+            env["AXS_SRC"] = "file://" + os.path.join(REPO_ROOT, "axs")
             r = subprocess.run(["sh", INSTALL_SH],
                                capture_output=True, text=True, env=env)
             self.assertEqual(r.returncode, 0,
                              f"install.sh failed: {r.stderr}")
-            target = os.path.join(tmp, "ax")
-            self.assertTrue(os.path.isfile(target), "ax not installed")
+            target = os.path.join(tmp, "axs")
+            self.assertTrue(os.path.isfile(target), "axs not installed")
             mode = os.stat(target).st_mode
-            self.assertTrue(mode & stat.S_IXUSR, "ax is not executable")
+            self.assertTrue(mode & stat.S_IXUSR, "axs is not executable")
             # installed file should run (prints agents status to stdout/stderr)
             r2 = subprocess.run([target, "agents"],
                                 capture_output=True, text=True)
             self.assertEqual(r2.returncode, 0,
-                             f"installed ax failed: {r2.stderr}")
+                             f"installed axs failed: {r2.stderr}")
             self.assertIn("claude", r2.stdout + r2.stderr)
         finally:
             shutil.rmtree(tmp)

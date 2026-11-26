@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""ax - cross-agent session picker for claude / codex / agy / opencode / devin /
+"""axs - cross-agent session picker for claude / codex / agy / opencode / devin /
 aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc.
 
 Usage:
-    ax                      list -> fzf -> resume (in original cwd)
-    ax list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY] [--regex]
-    ax grep <query> [--agent NAME] [--limit N] [--regex]   body-search -> fzf -> resume
-    ax preview <agent> <id> [--json] [--lines N]
-    ax stats [--json] [--days N] [--top N]   usage stats (sessions, activity, cwd)
-    ax resume <agent> <id>
-    ax rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
-    ax rename <agent> <id> --name "..."   set an ax-local display title
-    ax agents               show provider status, store size and count
+    axs                      list -> fzf -> resume (in original cwd)
+    axs list [--json] [--agent NAME] [--limit N] [--no-cache] [--grep QUERY] [--regex]
+    axs grep <query> [--agent NAME] [--limit N] [--regex]   body-search -> fzf -> resume
+    axs preview <agent> <id> [--json] [--lines N]
+    axs stats [--json] [--days N] [--top N]   usage stats (sessions, activity, cwd)
+    axs resume <agent> <id>
+    axs rm <agent> <id> [--yes] [--hard]   # delete a session (devin/codex/goose/opencode)
+    axs rename <agent> <id> --name "..."   set an axs-local display title
+    axs agents               show provider status, store size and count
 
 Configuration (optional):
-    ~/.config/ax/config.toml   (or $XDG_CONFIG_HOME/ax/config.toml)
+    ~/.config/axs/config.toml   (or $XDG_CONFIG_HOME/axs/config.toml)
 
 Local stores only, no network. One provider failing never breaks the others.
 Requires: fzf (any recent version; tested with 0.44), python3.
@@ -45,12 +45,12 @@ ALL_AGENTS = ("claude", "codex", "agy", "opencode", "devin",
 AGENTS = ALL_AGENTS
 
 DEFAULT_LIMIT = 300
-CACHE_DIR = os.path.join(HOME, ".cache", "ax")
+CACHE_DIR = os.path.join(HOME, ".cache", "axs")
 
-# ax-local display-title overrides (`ax rename`). Provider stores are never
-# written to, so rename is an ax-side alias that survives across all providers.
-AX_DATA_DIR = os.path.join(HOME, ".local", "share", "ax")
-TITLES_PATH = os.path.join(AX_DATA_DIR, "titles.json")
+# axs-local display-title overrides (`axs rename`). Provider stores are never
+# written to, so rename is an axs-side alias that survives across all providers.
+AXS_DATA_DIR = os.path.join(HOME, ".local", "share", "axs")
+TITLES_PATH = os.path.join(AXS_DATA_DIR, "titles.json")
 
 PREVIEW_DEFAULTS = {
     "claude": 30,
@@ -255,7 +255,7 @@ def _parse_toml(text):
 def load_config(path=None):
     if path is None:
         config_dir = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
-        path = os.path.join(config_dir, "ax", "config.toml")
+        path = os.path.join(config_dir, "axs", "config.toml")
     cfg = _default_config()
     if not os.path.exists(path):
         return cfg
@@ -525,7 +525,7 @@ def fmt_ts(ts):
 
 def _wrap_width():
     try:
-        w = int(os.environ.get("AX_PREVIEW_WIDTH", "0"))
+        w = int(os.environ.get("AXS_PREVIEW_WIDTH", "0"))
     except ValueError:
         w = 0
     if w <= 0:
@@ -557,7 +557,7 @@ def _should_color():
     """Color role headers when explicitly requested, or on a terminal."""
     if os.environ.get("NO_COLOR"):
         return False
-    env = os.environ.get("AX_PREVIEW_COLOR", "").lower()
+    env = os.environ.get("AXS_PREVIEW_COLOR", "").lower()
     if env in ("1", "true", "yes"):
         return True
     if env in ("0", "false", "no"):
@@ -1275,7 +1275,7 @@ def preview_opencode(sid, n=None, color=None):
 
 
 # ---------------- devin ----------------
-DEVIN_PREVIEW_PROMPT = "/_ax_preview"
+DEVIN_PREVIEW_PROMPT = "/_axs_preview"
 
 
 def _devin_db():
@@ -1449,7 +1449,7 @@ def _devin_run_export(sid, out_path, timeout=15):
 
 
 def _devin_try_export(sid, cache_path, n=20):
-    fd, tmp = tempfile.mkstemp(suffix=".json", prefix="ax-devin-")
+    fd, tmp = tempfile.mkstemp(suffix=".json", prefix="axs-devin-")
     os.close(fd)
     try:
         _devin_run_export(sid, tmp, timeout=15)
@@ -1581,7 +1581,7 @@ def preview_devin(sid, n=None, color=None):
 
 # ---------------- aider ----------------
 # aider has no session ids or central store: it appends to
-# <repo>/.aider.chat.history.md. ax rows are history files; resume runs
+# <repo>/.aider.chat.history.md. axs rows are history files; resume runs
 # `aider --restore-chat-history` in the repo dir.
 AIDER_HISTORY = ".aider.chat.history.md"
 _AIDER_SKIP_DIRS = {"node_modules", "__pycache__", "venv", "target", "dist",
@@ -3104,7 +3104,7 @@ def _cmdc_row(path):
 
 def _cmdc_file(sid):
     """Unique-prefix aware: `cmdc --session` itself accepts a unique id
-    prefix, so ax preview/grep/resume do too."""
+    prefix, so axs preview/grep/resume do too."""
     files = _cmdc_session_files()
     for p in files:
         if os.path.basename(p).startswith(sid):
@@ -5795,7 +5795,7 @@ def _load_titles():
 
 
 def _save_titles(d):
-    os.makedirs(AX_DATA_DIR, exist_ok=True)
+    os.makedirs(AXS_DATA_DIR, exist_ok=True)
     tmp = TITLES_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(d, fh, ensure_ascii=False, indent=1)
@@ -5937,18 +5937,18 @@ def cmd_preview(args):
             i += 1
         elif a == "--lines":
             if i + 1 >= len(args):
-                print("usage: ax preview <agent> <id> [--json] [--lines N]",
+                print("usage: axs preview <agent> <id> [--json] [--lines N]",
                       file=sys.stderr)
                 return 1
             i += 1
             try:
                 lines = int(args[i])
             except ValueError:
-                print("usage: ax preview <agent> <id> [--json] [--lines N]",
+                print("usage: axs preview <agent> <id> [--json] [--lines N]",
                       file=sys.stderr)
                 return 1
             if lines <= 0:
-                print("usage: ax preview <agent> <id> [--json] [--lines N]",
+                print("usage: axs preview <agent> <id> [--json] [--lines N]",
                       file=sys.stderr)
                 return 1
             i += 1
@@ -5956,23 +5956,23 @@ def cmd_preview(args):
             try:
                 lines = int(a[len("--lines="):])
             except ValueError:
-                print("usage: ax preview <agent> <id> [--json] [--lines N]",
+                print("usage: axs preview <agent> <id> [--json] [--lines N]",
                       file=sys.stderr)
                 return 1
             if lines <= 0:
-                print("usage: ax preview <agent> <id> [--json] [--lines N]",
+                print("usage: axs preview <agent> <id> [--json] [--lines N]",
                       file=sys.stderr)
                 return 1
             i += 1
         elif a.startswith("-"):
-            print("usage: ax preview <agent> <id> [--json] [--lines N]",
+            print("usage: axs preview <agent> <id> [--json] [--lines N]",
                   file=sys.stderr)
             return 1
         else:
             pos.append(a)
             i += 1
     if len(pos) < 2:
-        print("usage: ax preview <agent> <id> [--json] [--lines N]",
+        print("usage: axs preview <agent> <id> [--json] [--lines N]",
               file=sys.stderr)
         return 1
     agent, sid = pos[0], pos[1]
@@ -5993,7 +5993,7 @@ def cmd_preview(args):
 def cmd_resume(args):
     pos = [a for a in args if not a.startswith("-")]
     if len(pos) < 2:
-        print("usage: ax resume <agent> <id>", file=sys.stderr)
+        print("usage: axs resume <agent> <id>", file=sys.stderr)
         return 1
     agent, sid = pos[0], pos[1]
     if agent not in RESUME_CMD:
@@ -6027,7 +6027,7 @@ def cmd_agents():
 
 def cmd_grep(args):
     if not shutil.which("fzf"):
-        print("ax: fzf not found in PATH", file=sys.stderr)
+        print("axs: fzf not found in PATH", file=sys.stderr)
         return 1
     agents, limit, pos = list(AGENTS), 400, []
     regex = False
@@ -6046,14 +6046,14 @@ def cmd_grep(args):
         i += 1
     q = " ".join(pos).strip()
     if not q:
-        print("usage: ax grep <query> [--agent NAME] [--limit N] [--regex]",
+        print("usage: axs grep <query> [--agent NAME] [--limit N] [--regex]",
               file=sys.stderr)
         return 1
     if not agents:
         return 0
     rows = grep_sessions(q, agents, limit, regex=regex)
     if not rows:
-        print(f"ax: no body hits for: {q}", file=sys.stderr)
+        print(f"axs: no body hits for: {q}", file=sys.stderr)
         return 1
     filt = ""
     if len(agents) == 1:
@@ -6075,7 +6075,7 @@ def cmd_grep(args):
            *_picker_delete_bind(AGENTS)]
     fzf.extend(CONFIG["fzf"]["extra_args"])
     env = os.environ.copy()
-    env["AX_PREVIEW_COLOR"] = "1"
+    env["AXS_PREVIEW_COLOR"] = "1"
     p = subprocess.run(fzf, input=fmt_tsv(rows) + "\n", capture_output=False,
                        text=True, stdout=subprocess.PIPE, env=env)
     sel = (p.stdout or "").strip()
@@ -6146,7 +6146,7 @@ def _rm_argv(agent, sid, hard):
         return ["codex", "archive", sid]
     if agent == "goose":
         # goose session remove has no --yes flag; it shows an interactive
-        # confirm dialog that needs a tty. _run_tty() answers it after ax's
+        # confirm dialog that needs a tty. _run_tty() answers it after axs's
         # own confirmation has already passed.
         return ["goose", "session", "remove", "--session-id", sid]
     if agent == "opencode":
@@ -6233,7 +6233,7 @@ def cmd_rm(args):
     hard = "--hard" in args
     pos = [a for a in args if not a.startswith("-")]
     if len(pos) < 2:
-        print("usage: ax rm <agent> <id> [--yes] [--hard]", file=sys.stderr)
+        print("usage: axs rm <agent> <id> [--yes] [--hard]", file=sys.stderr)
         return 1
     agent, sid = pos[0], pos[1]
     if agent not in AGENTS:
@@ -6241,20 +6241,20 @@ def cmd_rm(args):
         return 1
     argv = _rm_argv(agent, sid, hard)
     if argv is None:
-        print(f"ax: rm not supported for {agent} "
+        print(f"axs: rm not supported for {agent} "
               f"(supported: devin, codex, goose, opencode)",
               file=sys.stderr)
         return 2
     target = _find_session(agent, sid)
     if target is None:
-        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        print(f"axs: {agent} session not found: {sid}", file=sys.stderr)
         return 1
-    if not _confirm(f"ax: remove {agent} session {sid} "
+    if not _confirm(f"axs: remove {agent} session {sid} "
                     f"\"{target['title']}\"? [y/N] ", yes):
-        print("ax: aborted", file=sys.stderr)
+        print("axs: aborted", file=sys.stderr)
         return 1
     if shutil.which(argv[0]) is None:
-        print(f"ax: {argv[0]} not found in PATH", file=sys.stderr)
+        print(f"axs: {argv[0]} not found in PATH", file=sys.stderr)
         return 1
     print(f"+ {' '.join(argv)}", file=sys.stderr)
     tty = _RM_TTY_AGENTS.get(agent)
@@ -6281,7 +6281,7 @@ def cmd_rename(args):
             pos.append(args[i])
         i += 1
     if len(pos) < 2 or name is None:
-        print('usage: ax rename <agent> <id> --name "new title" '
+        print('usage: axs rename <agent> <id> --name "new title" '
               '(empty name clears the alias)', file=sys.stderr)
         return 1
     agent, sid = pos[0], pos[1]
@@ -6289,7 +6289,7 @@ def cmd_rename(args):
         print(f"unknown agent: {agent}", file=sys.stderr)
         return 1
     if _find_session(agent, sid) is None:
-        print(f"ax: {agent} session not found: {sid}", file=sys.stderr)
+        print(f"axs: {agent} session not found: {sid}", file=sys.stderr)
         return 1
     name = clean_title(name)
     titles = _load_titles()
@@ -6297,25 +6297,25 @@ def cmd_rename(args):
     if name:
         titles[key] = name
         _save_titles(titles)
-        print(f"ax: {agent} {sid} display title -> {name}")
+        print(f"axs: {agent} {sid} display title -> {name}")
     else:
         if titles.pop(key, None) is not None:
             _save_titles(titles)
-        print(f"ax: {agent} {sid} display title cleared")
+        print(f"axs: {agent} {sid} display title cleared")
     return 0
 
 
-# fzf 0.44-compatible ctrl-d binding: re-exec ax rm on the selected row.
-# No --yes — ax's own confirm prompt still runs (see cmd_rm).
+# fzf 0.44-compatible ctrl-d binding: re-exec axs rm on the selected row.
+# No --yes — axs's own confirm prompt still runs (see cmd_rm).
 _PICKER_HEADER_SUFFIX = "ctrl-d=delete"
 _GREP_HEADER_SUFFIX = "ctrl-d=delete"
 
 
 def _picker_delete_bind(rm_agents):
-    """Build the fzf `ctrl-d:become` argv piece that re-execs ax rm.
+    """Build the fzf `ctrl-d:become` argv piece that re-execs axs rm.
 
     fzf replaces {1} {2} with the selected row's agent and id columns.
-    After ax rm returns, the picker restarts so the list reflects the
+    After axs rm returns, the picker restarts so the list reflects the
     deletion.
     """
     return ["--bind",
@@ -6325,28 +6325,28 @@ def _picker_delete_bind(rm_agents):
 
 def cmd_picker():
     if not shutil.which("fzf"):
-        print("ax: fzf not found in PATH", file=sys.stderr)
+        print("axs: fzf not found in PATH", file=sys.stderr)
         return 1
     rows = collect(list(AGENTS), None)
     if not rows:
-        print("ax: no sessions found", file=sys.stderr)
+        print("axs: no sessions found", file=sys.stderr)
         return 1
     tsv = fmt_tsv(rows)
     # cols: 1 agent, 2 id, 3 epoch, 4 reltime, 5 short_cwd, 6 cwd, 7 title
-    # fzf 0.44: `transform` is unavailable, so ctrl-g re-execs ax via become.
+    # fzf 0.44: `transform` is unavailable, so ctrl-g re-execs axs via become.
     fzf = ["fzf", "--delimiter", "\t", "--ansi",
            "--with-nth", "1,4,5,7",
            "--preview", f"{SELF} preview {{1}} {{2}}",
            "--preview-window", "right:55%:wrap",
            "--header", f"{'/'.join(AGENTS)} | enter=resume ctrl-g=body-search "
                        f"{_PICKER_HEADER_SUFFIX} esc=cancel",
-           "--prompt", "ax> ",
+           "--prompt", "axs> ",
            "--bind", f'ctrl-g:become:printf "grep> " > /dev/tty; '
                      f'read q < /dev/tty; exec "{SELF}" grep "$q"',
            *_picker_delete_bind(AGENTS)]
     fzf.extend(CONFIG["fzf"]["extra_args"])
     env = os.environ.copy()
-    env["AX_PREVIEW_COLOR"] = "1"
+    env["AXS_PREVIEW_COLOR"] = "1"
     p = subprocess.run(fzf, input=tsv + "\n", capture_output=False,
                        text=True, stdout=subprocess.PIPE, env=env)
     sel = (p.stdout or "").strip()

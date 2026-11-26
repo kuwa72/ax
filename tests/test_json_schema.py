@@ -13,7 +13,7 @@ import unittest
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -21,8 +21,8 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_schema_test_mod", AX_PATH)
-        spec = importlib.util.spec_from_loader("ax_schema_test_mod", loader, origin=AX_PATH)
+        loader = machinery.SourceFileLoader("ax_schema_test_mod", AXS_PATH)
+        spec = importlib.util.spec_from_loader("ax_schema_test_mod", loader, origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
@@ -119,13 +119,13 @@ class TestJsonSchema(unittest.TestCase):
         self.assertIn("not found", obj["preview"].lower())
 
     def test_skill_md_exists_and_documents_schema(self):
-        skill = os.path.join(REPO_ROOT, ".agents", "skills", "ax", "SKILL.md")
+        skill = os.path.join(REPO_ROOT, ".agents", "skills", "axs", "SKILL.md")
         self.assertTrue(os.path.isfile(skill), f"SKILL.md not found: {skill}")
         text = open(skill, encoding="utf-8").read()
-        self.assertIn("name: ax", text)
+        self.assertIn("name: axs", text)
         for k in ("agent", "id", "epoch", "cwd", "title", "match", "preview"):
             self.assertIn(k, text, f"SKILL.md does not document key: {k}")
-        for cmd in ("ax list --json", "ax preview --json", "ax resume"):
+        for cmd in ("axs list --json", "axs preview --json", "axs resume"):
             self.assertIn(cmd, text, f"SKILL.md does not mention: {cmd}")
 
 

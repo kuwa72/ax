@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the human-readable block format of `ax preview` (issue #9)."""
+"""Tests for the human-readable block format of `axs preview` (issue #9)."""
 import io
 import json
 import os
@@ -97,15 +97,15 @@ class TestPreviewFormat(unittest.TestCase):
         self.assertEqual(lines[idx + 1].lstrip("│ "), "Refactor the login form")
 
     def test_long_body_wraps_at_width(self):
-        old = os.environ.get("AX_PREVIEW_WIDTH")
-        os.environ["AX_PREVIEW_WIDTH"] = "40"
+        old = os.environ.get("AXS_PREVIEW_WIDTH")
+        os.environ["AXS_PREVIEW_WIDTH"] = "40"
         try:
             text = self.mod.preview_claude("sess-c1a2b3")
         finally:
             if old is None:
-                os.environ.pop("AX_PREVIEW_WIDTH", None)
+                os.environ.pop("AXS_PREVIEW_WIDTH", None)
             else:
-                os.environ["AX_PREVIEW_WIDTH"] = old
+                os.environ["AXS_PREVIEW_WIDTH"] = old
         body = [l for l in text.splitlines()
                 if l and not l.startswith(("[", "---"))]
         self.assertTrue(body)
@@ -116,7 +116,7 @@ class TestPreviewFormat(unittest.TestCase):
         self.assertGreater(len(body), 4)
 
     def test_default_wrap_never_exceeds_80(self):
-        os.environ.pop("AX_PREVIEW_WIDTH", None)
+        os.environ.pop("AXS_PREVIEW_WIDTH", None)
         text = self.mod.preview_claude("sess-c1a2b3")
         body = [l for l in text.splitlines()
                 if l and not l.startswith(("[", "---"))]
@@ -125,7 +125,7 @@ class TestPreviewFormat(unittest.TestCase):
             self.assertLessEqual(len(l), 80, f"body line too long: {l!r}")
 
     def test_original_newlines_preserved(self):
-        os.environ.pop("AX_PREVIEW_WIDTH", None)
+        os.environ.pop("AXS_PREVIEW_WIDTH", None)
         text = self.mod.preview_claude("sess-c1a2b3")
         lines = text.splitlines()
         # fixture message has a hard newline before "Also keep ..."
@@ -168,7 +168,7 @@ class TestPreviewFormat(unittest.TestCase):
         self.assertNotIn("[tool:", text)
 
     def test_body_has_left_border(self):
-        os.environ.pop("AX_PREVIEW_WIDTH", None)
+        os.environ.pop("AXS_PREVIEW_WIDTH", None)
         text = self.mod.preview_claude("sess-c1a2b3")
         body = [l for l in text.splitlines()
                 if l and not l.startswith(("[", "---"))]

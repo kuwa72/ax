@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for `ax rm` / `ax rename`.
+"""Unit tests for `axs rm` / `axs rename`.
 
 All tests run against a synthetic fixture HOME (copied into a temp dir) and
 mock subprocess / input / shutil.which, so the real session stores and the
@@ -19,7 +19,7 @@ from unittest import mock
 import ax_test_support  # noqa: F401  (scrubs HERMES_HOME for the test run)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AX_PATH = os.path.join(REPO_ROOT, "ax")
+AXS_PATH = os.path.join(REPO_ROOT, "axs")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -27,9 +27,9 @@ def load_ax(home):
     old = os.environ.get("HOME")
     os.environ["HOME"] = home
     try:
-        loader = machinery.SourceFileLoader("ax_rm_test_mod", AX_PATH)
+        loader = machinery.SourceFileLoader("ax_rm_test_mod", AXS_PATH)
         spec = importlib.util.spec_from_loader("ax_rm_test_mod", loader,
-                                               origin=AX_PATH)
+                                               origin=AXS_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
@@ -74,7 +74,7 @@ class TestRmRename(unittest.TestCase):
         shutil.rmtree(cls.tmp)
 
     def setUp(self):
-        # isolate the ax-local title store between tests
+        # isolate the axs-local title store between tests
         if os.path.exists(self.mod.TITLES_PATH):
             os.remove(self.mod.TITLES_PATH)
 
@@ -94,7 +94,7 @@ class TestRmRename(unittest.TestCase):
         m.returncode = 0
         return m
 
-    # ---------- ax rm ----------
+    # ---------- axs rm ----------
     def test_rm_devin_invokes_devin_rm_force(self):
         with mock.patch("subprocess.run", return_value=self._run_ok()) as mrun, \
                 mock.patch("shutil.which", return_value="/bin/true"):
@@ -193,7 +193,7 @@ class TestRmRename(unittest.TestCase):
                 self.mod.cmd_rm, ["devin", "dev-1", "--yes"])
         self.assertEqual(rc, 3)
 
-    # ---------- ax rm: goose / opencode ----------
+    # ---------- axs rm: goose / opencode ----------
     def test_rm_goose_invokes_tty_runner_with_session_remove(self):
         with mock.patch.object(self.mod, "_run_tty",
                                return_value=(0, "")) as mtty, \
@@ -206,7 +206,7 @@ class TestRmRename(unittest.TestCase):
                          ["goose", "session", "remove", "--session-id", "g-1"])
 
     def test_rm_goose_answered_only_after_ax_confirm(self):
-        # without --yes, 'y' at ax prompt -> the tty runner still runs
+        # without --yes, 'y' at axs prompt -> the tty runner still runs
         with mock.patch.object(self.mod, "_run_tty",
                                return_value=(0, "")) as mtty, \
                 mock.patch("shutil.which", return_value="/bin/true"), \
@@ -310,17 +310,17 @@ class TestRmRename(unittest.TestCase):
         rc, _, _ = self._capture(self.mod.cmd_rm, ["devin"])
         self.assertNotEqual(rc, 0)
 
-    # ---------- ax picker: ctrl-d delete binding ----------
+    # ---------- axs picker: ctrl-d delete binding ----------
     def test_picker_delete_binding_targets_rm(self):
         bind = self.mod._picker_delete_bind(["claude", "codex", "goose"])
         argv = bind[-1]  # (--bind, 'ctrl-d:become:...')
-        # fzf 0.44-compatible `become` re-exec that runs ax rm on the
-        # selected row (no --yes: ax's own confirm prompt stays in place)
+        # fzf 0.44-compatible `become` re-exec that runs axs rm on the
+        # selected row (no --yes: axs's own confirm prompt stays in place)
         self.assertIn("ctrl-d:become:", argv)
         self.assertIn(f'"{self.mod.SELF}" rm', argv)
 
     def test_picker_delete_bind_supports_only_rm_providers(self):
-        # the binding itself is provider-agnostic: ax rm reports which
+        # the binding itself is provider-agnostic: axs rm reports which
         # providers support deletion, picker just forwards agent+id.
         bind = self.mod._picker_delete_bind(["devin", "codex", "goose",
                                              "opencode", "claude"])

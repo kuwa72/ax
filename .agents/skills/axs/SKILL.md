@@ -1,21 +1,21 @@
 ---
-name: ax
-description: "Find, summarize, preview, and resume cross-agent sessions (claude / codex / agy / opencode / devin / aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh) using the ax CLI. Use when the user wants to search past sessions, pick a session to continue, or switch context across agents."
+name: axs
+description: "Find, summarize, preview, and resume cross-agent sessions (claude / codex / agy / opencode / devin / aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh) using the axs CLI. Use when the user wants to search past sessions, pick a session to continue, or switch context across agents."
 ---
 
-# ax — マルチエージェント横断セッションピッカー
+# axs — マルチエージェント横断セッションピッカー
 
-`ax` は claude / codex / agy (antigravity-cli) / opencode / devin / aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh の過去セッションを1つの fzf/JSON インターフェースで扱う。
+`axs` は claude / codex / agy (antigravity-cli) / opencode / devin / aider / goose / omp / vibe / hermes / crush / pi / gemini / cmdc / qwen / droid / grok / kimi / copilot / cline / tau / continue / kilo / mimo / codewhale / gptme / jcode / dsh の過去セッションを1つの fzf/JSON インターフェースで扱う。
 
 ## インストール
 
 ```bash
-# 1. ax 実行ファイルを PATH に置く
+# 1. axs 実行ファイルを PATH に置く
 export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"
-# または任意のパスに ax をコピーして PATH を通す
+# または任意のパスに axs をコピーして PATH を通す
 
 # 2. Skill を全エージェントに導入
-npx skills add kuwa72/ax --skill ax -g
+npx skills add kuwa72/ax --skill axs -g
 ```
 
 ## いつ使うか
@@ -27,16 +27,16 @@ npx skills add kuwa72/ax --skill ax -g
 
 ## Read-first ワークフロー（必ず守る）
 
-1. `ax list --json` で最新候補を取得する
+1. `axs list --json` で最新候補を取得する
 2. 候補を `agent` / `title` / `cwd` / `epoch` などで要約し、ユーザーに提示する
-3. ユーザーが気になる候補があれば `ax preview --json <agent> <id>` で本文を確認する
-4. ユーザーが「このセッションで再開」と明確に承認したらのみ `ax resume <agent> <id>` を実行する
+3. ユーザーが気になる候補があれば `axs preview --json <agent> <id>` で本文を確認する
+4. ユーザーが「このセッションで再開」と明確に承認したらのみ `axs resume <agent> <id>` を実行する
 
-`ax resume` は承認後のみ実行する。候補を要約せずに自動で resume してはいけない。
+`axs resume` は承認後のみ実行する。候補を要約せずに自動で resume してはいけない。
 
 ## JSON スキーマ
 
-### `ax list --json`
+### `axs list --json`
 
 各行は以下のキーを持つ JSON オブジェクトの配列となる。
 
@@ -48,7 +48,7 @@ npx skills add kuwa72/ax --skill ax -g
 | `cwd` | string | 作業ディレクトリ (`?` の場合あり) |
 | `title` | string | セッション表示名 (rename エイリアスを含む) |
 
-### `ax list --json --grep <query>`
+### `axs list --json --grep <query>`
 
 `--grep` 使用時、各行は上記に加えて `match` キーを持つ。
 
@@ -58,7 +58,7 @@ npx skills add kuwa72/ax --skill ax -g
 
 `match` に含まれる文字列に `\t` や `\n` は含まれない。
 
-### `ax preview --json <agent> <id>`
+### `axs preview --json <agent> <id>`
 
 単一の JSON オブジェクトを返す。
 
@@ -72,26 +72,26 @@ npx skills add kuwa72/ax --skill ax -g
 
 ```bash
 # 最新 10 件を JSON で取得
-ax list --json --limit 10
+axs list --json --limit 10
 
 # 本文に "migration" を含むセッションを横断検索
-ax list --json --grep migration
+axs list --json --grep migration
 
 # fzf で直接本文検索 (--agent で絞り込み、--limit で収集上限上書き・既定400)
-ax grep migration --agent claude --limit 10
+axs grep migration --agent claude --limit 10
 
 # claude の特定セッション本文をプレビュー
-ax preview --json claude sess-c1a2b3
+axs preview --json claude sess-c1a2b3
 
 # ユーザー承認後に再開
-ax resume claude sess-c1a2b3
+axs resume claude sess-c1a2b3
 ```
 
 ## 制約
 
-- ax / fzf 0.44 互換
+- axs / fzf 0.44 互換
 - 標準ライブラリのみ
 - SQLite は read-only URI
 - 1 プロバイダ異常時も他は継続し、stderr に警告を出す
-- 削除 (`ax rm`) は devin / codex / goose / opencode のみ対応。goose は PTY 経由
-  (ax の確認通過後に goose 側ダイアログへ自動応答)。ユーザー承認なしに実行しない。
+- 削除 (`axs rm`) は devin / codex / goose / opencode のみ対応。goose は PTY 経由
+  (axs の確認通過後に goose 側ダイアログへ自動応答)。ユーザー承認なしに実行しない。
