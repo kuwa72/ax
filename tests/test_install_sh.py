@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for install.sh (curl|sh installer, issue #26)."""
+"""Tests for install.sh / install.ps1 (curl|sh and irm|iex installers)."""
 import os
 import shutil
 import stat
@@ -9,6 +9,7 @@ import unittest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALL_SH = os.path.join(REPO_ROOT, "install.sh")
+INSTALL_PS1 = os.path.join(REPO_ROOT, "install.ps1")
 
 
 class TestInstallSh(unittest.TestCase):
@@ -40,6 +41,17 @@ class TestInstallSh(unittest.TestCase):
             self.assertIn("claude", r2.stdout + r2.stderr)
         finally:
             shutil.rmtree(tmp)
+
+    def test_install_ps1_exists_and_creates_cmd_shim(self):
+        # Windows cannot run an extension-less Python script directly (no
+        # shebang support), so install.ps1 must also write an axs.cmd shim.
+        self.assertTrue(os.path.isfile(INSTALL_PS1), "install.ps1 not found")
+        with open(INSTALL_PS1, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn('Join-Path $binDir "axs.cmd"', text)
+        self.assertIn('python `"%~dp0axs`" %*', text)
+        self.assertIn("AXS_BIN_DIR", text)
+        self.assertIn("AXS_SRC", text)
 
 
 if __name__ == "__main__":
