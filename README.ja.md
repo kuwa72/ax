@@ -53,6 +53,14 @@ curl -fsSL https://raw.githubusercontent.com/kuwa72/ax/main/install.sh | sh
 
 git clone して PATH に足す運用も可: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/kuwa72/ax/main/install.ps1 | iex
+```
+
+`axs` と `axs.cmd` シムを `%USERPROFILE%\.local\bin` に導入する。Windows は shebang 非対応で拡張子なしの Python スクリプトを直接実行できないため、`.cmd` シム経由で起動する。`python` と `fzf` が PATH にあること。
+
 コマンド名は旧 `ax` から `axs` に変更した。旧名は [yusukebe/ax](https://github.com/yusukebe/ax)（AI 時代の curl）と衝突するため。旧版を導入済みなら、新規導入後に `~/.local/bin/ax` と旧状態ディレクトリ (`~/.cache/ax`, `~/.local/share/ax`) を削除する。設定は `~/.config/axs/config.toml` に移動した。
 
 ## 設定ファイル (optional)

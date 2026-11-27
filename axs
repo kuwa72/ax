@@ -627,7 +627,7 @@ def _claude_path(sid):
 def _claude_row(path, sid):
     cwd, title = "?", ""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for i, line in enumerate(fh):
                 if i > 200:
                     break
@@ -703,7 +703,7 @@ def preview_claude(sid, n=None, color=None):
     if not path:
         return f"claude session not found: {sid}"
     turns = []
-    with open(path, errors="replace") as fh:
+    with open(path, errors="replace", encoding="utf-8") as fh:
         for line in fh:
             try:
                 o = json.loads(line)
@@ -747,7 +747,7 @@ def _codex_path(sid):
 def _codex_row(path, mtime=None):
     sid, cwd, title = None, "?", ""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for i, line in enumerate(fh):
                 if i > 120:
                     break
@@ -822,7 +822,7 @@ def preview_codex(sid, n=None, color=None):
     if not target:
         return f"codex session not found: {sid}"
     turns = []
-    with open(target, errors="replace") as fh:
+    with open(target, errors="replace", encoding="utf-8") as fh:
         for line in fh:
             try:
                 o = json.loads(line)
@@ -860,7 +860,7 @@ def _agy_history():
     p = os.path.join(AGY_HOME, "history.jsonl")
     if not os.path.exists(p):
         return m
-    with open(p, errors="replace") as fh:
+    with open(p, errors="replace", encoding="utf-8") as fh:
         for line in fh:
             try:
                 o = json.loads(line)
@@ -934,7 +934,8 @@ def _agy_aux():
     """Shared (history, lastmap) inputs for agy rows."""
     lastmap = {}
     try:
-        with open(os.path.join(AGY_HOME, "cache", "last_conversations.json")) as fh:
+        with open(os.path.join(AGY_HOME, "cache", "last_conversations.json"),
+                  encoding="utf-8", errors="replace") as fh:
             lastmap = {v: k for k, v in json.load(fh).items()}
     except Exception:
         pass
@@ -958,7 +959,7 @@ def _agy_first_input(cid):
     if not os.path.exists(p):
         return ""
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for i, line in enumerate(fh):
                 if i > 40:
                     break
@@ -981,7 +982,7 @@ def preview_agy(cid, n=None, color=None):
     if not os.path.exists(p):
         return f"agy transcript not found: {cid}"
     turns = []
-    with open(p, errors="replace") as fh:
+    with open(p, errors="replace", encoding="utf-8") as fh:
         for line in fh:
             try:
                 o = json.loads(line)
@@ -1353,7 +1354,7 @@ def _devin_lines_from_steps(steps, trim_sentinel=None):
 
 
 def _parse_devin_export(path, trim_sentinel=None):
-    with open(path, errors="replace") as fh:
+    with open(path, errors="replace", encoding="utf-8") as fh:
         d = json.load(fh)
     steps = d.get("steps", []) if isinstance(d, dict) else []
     lines = _devin_lines_from_steps(steps, trim_sentinel)
@@ -1584,8 +1585,12 @@ def preview_devin(sid, n=None, color=None):
 # <repo>/.aider.chat.history.md. axs rows are history files; resume runs
 # `aider --restore-chat-history` in the repo dir.
 AIDER_HISTORY = ".aider.chat.history.md"
+# Heavy/irrelevant dirs pruned at every level. AppData (Windows) / Library
+# (macOS) are not dot-prefixed but hold hundreds of thousands of files and
+# never contain a repo history, so walking them makes the HOME root scan take
+# minutes instead of milliseconds.
 _AIDER_SKIP_DIRS = {"node_modules", "__pycache__", "venv", "target", "dist",
-                    "build", "go"}
+                    "build", "go", "AppData", "Application Data", "Library"}
 AIDER_SCAN_MAX_DEPTH = 8
 
 
@@ -1637,7 +1642,7 @@ def _aider_turns(path):
         role, buf = None, []
 
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh.read().splitlines():
                 if line.startswith("```"):
                     in_fence = not in_fence
@@ -1789,7 +1794,7 @@ def _goose_jsonl_session(sid):
     if not os.path.exists(p):
         return None
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             head = json.loads(fh.readline() or "{}")
         epoch = (_epoch_from_ts(head.get("updated_at"), utc=True)
                  or _epoch_from_ts(head.get("created_at"), utc=True)
@@ -1859,7 +1864,7 @@ def _goose_jsonl_sessions(exclude_ids):
             continue
         p = os.path.join(d, fn)
         try:
-            with open(p, errors="replace") as fh:
+            with open(p, errors="replace", encoding="utf-8") as fh:
                 head = json.loads(fh.readline() or "{}")
             epoch = (_epoch_from_ts(head.get("updated_at"), utc=True)
                      or _epoch_from_ts(head.get("created_at"), utc=True)
@@ -1912,7 +1917,7 @@ def _goose_jsonl_turns(sid):
         return None
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -2076,7 +2081,7 @@ def preview_omp(sid, n=None, color=None):
         return f"omp session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -2200,7 +2205,7 @@ def _vibe_unified_turns(d):
 
 def _vibe_meta(d):
     try:
-        with open(os.path.join(d, "meta.json"), errors="replace") as fh:
+        with open(os.path.join(d, "meta.json"), errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -2309,7 +2314,7 @@ def preview_vibe(sid, n=None, color=None):
         turns = []
         try:
             with open(os.path.join(d, "messages.jsonl"),
-                      errors="replace") as fh:
+                      errors="replace", encoding="utf-8") as fh:
                 for line in fh:
                     try:
                         o = json.loads(line)
@@ -2697,7 +2702,7 @@ def _pi_session_files():
 def _pi_meta(path):
     """First-line session metadata (id / timestamp / cwd)."""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.loads(fh.readline())
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -2716,7 +2721,7 @@ def _pi_text(o):
 
 def _pi_first_user(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -2787,7 +2792,7 @@ def preview_pi(sid, n=None, color=None):
         return f"pi session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -2887,7 +2892,7 @@ def _gemini_msg_text(m):
 
 def _gemini_row(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             d = json.load(fh)
     except Exception:
         return None
@@ -2925,7 +2930,7 @@ def _gemini_file(sid):
     if not cands:
         for p in files:
             try:
-                with open(p, errors="replace") as fh:
+                with open(p, errors="replace", encoding="utf-8") as fh:
                     d = json.load(fh)
                 if isinstance(d, dict) and \
                         str(d.get("sessionId", "")).startswith(sid):
@@ -2978,7 +2983,7 @@ def preview_gemini(sid, n=None, color=None):
         return f"gemini session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             d = json.load(fh)
         for m in d.get("messages") or []:
             if not isinstance(m, dict):
@@ -3004,7 +3009,7 @@ def store_info_gemini():
     for p in files:
         try:
             size += os.path.getsize(p)
-            with open(p, errors="replace") as fh:
+            with open(p, errors="replace", encoding="utf-8") as fh:
                 d = json.load(fh)
             ids.add(d.get("sessionId") if isinstance(d, dict)
                     and d.get("sessionId") else p)
@@ -3046,7 +3051,7 @@ def _cmdc_session_files():
 def _cmdc_meta(path):
     """First-line session metadata (id / timestamp / cwd)."""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.loads(fh.readline())
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -3065,7 +3070,7 @@ def _cmdc_text(o):
 
 def _cmdc_first_user(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3136,7 +3141,7 @@ def preview_cmdc(sid, n=None, color=None):
         return f"cmdc session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3193,7 +3198,7 @@ def _qwen_session_files():
 def _qwen_meta(path):
     """First-line user record carries sessionId / timestamp / cwd."""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3222,7 +3227,7 @@ def _qwen_role(o):
 
 def _qwen_first_user(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3284,7 +3289,7 @@ def preview_qwen(sid, n=None, color=None):
         return f"qwen session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3345,7 +3350,7 @@ def _droid_session_files():
 def _droid_meta(path):
     """First-line session_start record (id / title / cwd)."""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.loads(fh.readline())
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -3377,7 +3382,7 @@ def _droid_text(o):
 
 def _droid_first_user(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3443,7 +3448,7 @@ def preview_droid(sid, n=None, color=None):
         return f"droid session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3506,7 +3511,7 @@ def _grok_session_dirs():
 def _grok_meta(d):
     try:
         with open(os.path.join(d, "summary.json"),
-                  errors="replace") as fh:
+                  errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -3563,7 +3568,7 @@ def _grok_transcript(d):
 def _grok_first_user(d):
     p = _grok_transcript(d)
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3616,7 +3621,7 @@ def preview_grok(sid, n=None, color=None):
         return f"grok session not found: {sid}"
     turns = []
     try:
-        with open(_grok_transcript(d), errors="replace") as fh:
+        with open(_grok_transcript(d), errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3677,7 +3682,7 @@ def _kimi_session_dirs():
 def _kimi_state(d):
     try:
         with open(os.path.join(d, "state.json"),
-                  errors="replace") as fh:
+                  errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -3719,7 +3724,7 @@ def _kimi_text(o):
 
 def _kimi_first_user(d):
     try:
-        with open(_kimi_wire(d), errors="replace") as fh:
+        with open(_kimi_wire(d), errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3775,7 +3780,7 @@ def preview_kimi(sid, n=None, color=None):
         return f"kimi session not found: {sid}"
     turns = []
     try:
-        with open(_kimi_wire(d), errors="replace") as fh:
+        with open(_kimi_wire(d), errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3831,7 +3836,7 @@ def _copilot_events():
 def _copilot_meta(path):
     """First-line session.start record (sessionId / startTime / cwd)."""
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.loads(fh.readline())
         if isinstance(o, dict) and o.get("type") == "session.start":
             d = o.get("data") or {}
@@ -3860,7 +3865,7 @@ def _copilot_role(o):
 
 def _copilot_first_user(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3926,7 +3931,7 @@ def preview_copilot(sid, n=None, color=None):
         return f"copilot session not found: {sid}"
     turns = []
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -3983,7 +3988,7 @@ def _cline_messages(sid):
     p = os.path.join(HOME, ".cline", "data", "sessions", sid,
                      sid + ".messages.json")
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             d = json.load(fh)
     except Exception:
         return []
@@ -4082,7 +4087,7 @@ def _tau_index():
             if not os.path.exists(idx):
                 continue
             try:
-                with open(idx, errors="replace") as fh:
+                with open(idx, errors="replace", encoding="utf-8") as fh:
                     for line in fh:
                         try:
                             o = json.loads(line)
@@ -4108,7 +4113,7 @@ def _tau_row(o):
         p = o.get("path")
         if isinstance(p, str) and os.path.exists(p):
             try:
-                with open(p, errors="replace") as fh:
+                with open(p, errors="replace", encoding="utf-8") as fh:
                     for line in fh:
                         try:
                             e = json.loads(line)
@@ -4166,7 +4171,7 @@ def preview_tau(sid, n=None, color=None):
     p = o.get("path")
     if isinstance(p, str) and os.path.exists(p):
         try:
-            with open(p, errors="replace") as fh:
+            with open(p, errors="replace", encoding="utf-8") as fh:
                 for line in fh:
                     try:
                         e = json.loads(line)
@@ -4219,7 +4224,7 @@ def _continue_files():
 
 def _continue_session(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -4467,7 +4472,7 @@ def _codewhale_files():
 
 def _codewhale_session(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -4569,7 +4574,7 @@ def _gptme_dirs():
 
 def _gptme_workspace(d):
     try:
-        with open(os.path.join(d, "config.toml"), errors="replace") as fh:
+        with open(os.path.join(d, "config.toml"), errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 m = re.match(r'\s*workspace\s*=\s*"([^"]*)"', line)
                 if m:
@@ -4597,7 +4602,7 @@ def _gptme_row(d):
     title = "(untitled)"
     try:
         with open(os.path.join(d, "conversation.jsonl"),
-                  errors="replace") as fh:
+                  errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -4640,7 +4645,7 @@ def preview_gptme(sid, n=None, color=None):
     turns = []
     try:
         with open(os.path.join(d, "conversation.jsonl"),
-                  errors="replace") as fh:
+                  errors="replace", encoding="utf-8") as fh:
             for line in fh:
                 try:
                     o = json.loads(line)
@@ -4691,7 +4696,7 @@ def _jcode_files():
 
 def _jcode_session(path):
     try:
-        with open(path, errors="replace") as fh:
+        with open(path, errors="replace", encoding="utf-8") as fh:
             o = json.load(fh)
         return o if isinstance(o, dict) else {}
     except Exception:
@@ -5393,7 +5398,7 @@ def grep_devin(sid, pats_b, pat_s, query, max_hits=2, regex=False):
     if not os.path.exists(p) or not _file_might_contain(p, pats_b):
         return out
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             d = json.load(fh)
     except Exception:
         return out
@@ -5566,7 +5571,7 @@ def grep_gemini(sid, pats_b, pat_s, query, max_hits=2, regex=False):
     if not p or not _file_might_contain(p, pats_b):
         return out
     try:
-        with open(p, errors="replace") as fh:
+        with open(p, errors="replace", encoding="utf-8") as fh:
             d = json.load(fh)
     except Exception:
         return out
@@ -6184,7 +6189,7 @@ def _run_tty(argv, expect=None, answer="y", timeout=30):
     try:
         while True:
             if not answered and expect:
-                m = re.search(expect, buf.decode(errors="replace"))
+                m = re.search(expect, buf.decode(errors="replace", encoding="utf-8"))
                 if m:
                     os.write(master, (answer + "\r").encode())
                     answered = True
@@ -6215,7 +6220,7 @@ def _run_tty(argv, expect=None, answer="y", timeout=30):
             if time.monotonic() > deadline:
                 p.kill()
                 p.wait()
-                return 124, buf.decode(errors="replace")
+                return 124, buf.decode(errors="replace", encoding="utf-8")
     finally:
         try:
             os.close(master)
@@ -6225,7 +6230,7 @@ def _run_tty(argv, expect=None, answer="y", timeout=30):
             p.kill()
             p.wait()
     return (p.returncode if p.returncode is not None else 124,
-            buf.decode(errors="replace"))
+            buf.decode(errors="replace", encoding="utf-8"))
 
 
 def cmd_rm(args):
@@ -6356,7 +6361,19 @@ def cmd_picker():
     return cmd_resume([agent, sid])
 
 
+def _harden_streams():
+    """Make stdout/stderr UTF-8 so Japanese/emoji payloads do not crash on
+    Windows, where a piped stdout defaults to the legacy ANSI code page
+    (cp932 on Japanese Windows) and raises UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _harden_streams()
     args = sys.argv[1:]
     if not args:
         return cmd_picker()

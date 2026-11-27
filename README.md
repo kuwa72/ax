@@ -20,6 +20,14 @@ Installs the single-file `axs` script to `~/.local/bin/axs`. Requirements: `pyth
 
 Or clone and put it on PATH: `export PATH="$HOME/ghq/github.com/kuwa72/ax:$PATH"`
 
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/kuwa72/ax/main/install.ps1 | iex
+```
+
+Installs `axs` plus an `axs.cmd` shim to `%USERPROFILE%\.local\bin`, because Windows cannot execute an extension-less Python script directly (there is no shebang support). Requires `python` and `fzf` on `PATH`.
+
 The command was previously named `ax`, which collides with [yusukebe/ax](https://github.com/yusukebe/ax) (the "AI-era curl"). It is now `axs`. If you installed the old version, remove `~/.local/bin/ax` and the old state dirs (`~/.cache/ax`, `~/.local/share/ax`) after installing; config now lives in `~/.config/axs/config.toml`.
 
 ## Usage

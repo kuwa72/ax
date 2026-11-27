@@ -286,6 +286,29 @@ class TestAx(unittest.TestCase):
         self.assertEqual(by_id["dev-1"]["title"], "devin test one")
         self.assertEqual(by_id["dev-2"]["title"], "devin test two")
 
+    def test_aider_scan_prunes_os_app_data_dirs(self):
+        # On Windows, ~/AppData is not dot-prefixed and holds hundreds of
+        # thousands of files; walking it makes `agents`/`list` take minutes.
+        # It never holds a repo .aider.chat.history.md, so it must be pruned.
+        # Use a dir outside the fixture HOME so the extra history file does
+        # not leak into the other aider tests.
+        base = tempfile.mkdtemp(prefix="ax_aider_prune_")
+        keep = os.path.join(base, "myproj")
+        skip = os.path.join(base, "AppData", "Local", "deep")
+        for d in (keep, skip):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, ".aider.chat.history.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("# aider chat started at 2025-01-01 00:00:00\n")
+        self.mod.CONFIG["providers"]["aider"]["roots"] = [base]
+        try:
+            found = set(self.mod._aider_scan())
+        finally:
+            self.mod.CONFIG["providers"]["aider"]["roots"] = ["~"]
+            shutil.rmtree(base)
+        self.assertIn(os.path.join(keep, ".aider.chat.history.md"), found)
+        self.assertNotIn(os.path.join(skip, ".aider.chat.history.md"), found)
+
     def test_list_aider(self):
         rows = self.mod.list_aider(400)
         by_id = {r["id"]: r for r in rows}
@@ -486,6 +509,51 @@ class TestAx(unittest.TestCase):
             line = next(l for l in out.strip().splitlines() if l.startswith(f"{a}:"))
             self.assertIn(f"{a}: ok", line)
             self.assertIn("sessions", line)
+
+    def test_all_text_reads_declare_utf8(self):
+        # On Japanese Windows the implicit locale encoding is cp932, so any
+        # text open() without encoding= decodes UTF-8 session files as cp932
+        # and corrupts non-ASCII titles/previews. Every text open in axs must
+        # pin encoding explicitly.
+        import ast
+        with open(AXS_PATH, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        offenders = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "open"):
+                continue
+            mode = None
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                mode = node.args[1].value
+            for kw in node.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    mode = kw.value.value
+            if "b" in (mode or ""):
+                continue
+            if not any(kw.arg == "encoding" for kw in node.keywords):
+                offenders.append(node.lineno)
+        self.assertEqual(offenders, [],
+                         f"text open() without encoding= at lines {offenders}")
+
+    def test_json_output_survives_non_utf8_stdout(self):
+        # main() must not crash when stdout cannot encode the payload
+        # (cp932 console on Japanese Windows): it reconfigures streams to
+        # UTF-8 up front.
+        raw = io.BytesIO()
+        narrow = io.TextIOWrapper(raw, encoding="cp932", errors="strict")
+        old_out, old_argv = sys.stdout, sys.argv
+        sys.stdout, sys.argv = narrow, ["axs", "list", "--agent", "claude",
+                                        "--json"]
+        try:
+            rc = self.mod.main()
+            narrow.flush()
+        finally:
+            sys.stdout, sys.argv = old_out, old_argv
+        self.assertIn(rc, (0, None))
+        out = raw.getvalue().decode("utf-8")
+        self.assertIn("sess-c1a2b3", out)
 
 
 if __name__ == "__main__":
